@@ -346,3 +346,8 @@ class EmbodimentTag(Enum):
     """
     The Mecka robot with hands.
     """
+
+    FRANKA_ORCA_BIMANUAL = "franka_orca_bimanual"
+    """
+    Dual Franka arms with Orca dexterous hands (7+17 DOF per side, 48 total).
+    """

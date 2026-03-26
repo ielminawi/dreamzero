@@ -1,0 +1,25 @@
+{
+    "description": "Dual Franka + Orca hand calibration. Camera extrinsics (cam -> arm_base) and derived arm-to-arm transform.",
+    "camera_extrinsics_cam_to_base": {
+        "left_cam": [
+            [-0.02199727, -0.80581615,  0.59175708,  0.20403467],
+            [-0.99905014,  0.03998766,  0.01731508, -0.25486327],
+            [-0.03761575, -0.59081411, -0.80593036,  0.43379187],
+            [ 0.0,         0.0,         0.0,         1.0        ]
+        ],
+        "right_cam": [
+            [ 0.02933941, -0.83227828,  0.55358113,  0.17515134],
+            [-0.99642232,  0.01956109,  0.08221870,  0.34649483],
+            [-0.07925749, -0.55401284, -0.82872675,  0.46895363],
+            [ 0.0,         0.0,         0.0,         1.0        ]
+        ]
+    },
+    "left_base_to_right_base": [
+        [ 0.997603, -0.053007,  0.044470, -0.061195],
+        [ 0.054809,  0.997682, -0.040338,  0.607083],
+        [-0.042229,  0.042679,  0.998196,  0.055438],
+        [ 0.0,       0.0,       0.0,       1.0      ]
+    ],
+    "arm_separation_meters": 0.6127,
+    "notes": "Arms mounted side-by-side ~61cm apart (Y-axis), nearly co-planar (~2-3 deg relative tilt). Not used for DreamZero training (joint-space only), but needed for inference IK and Cartesian reasoning."
+}
