@@ -44,7 +44,10 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import multiprocessing as mp
+import os
 import sys
+from functools import partial
 from pathlib import Path
 
 import cv2
@@ -224,6 +227,45 @@ def build_info_json(
 
 
 # ---------------------------------------------------------------------------
+# Per-episode worker (for parallel conversion)
+# ---------------------------------------------------------------------------
+
+def convert_episode(
+    args_tuple: tuple[int, Path],
+    output_dir: Path,
+    fps: float,
+    task: str,
+) -> int:
+    """Convert a single episode. Returns the number of frames."""
+    ep_idx, h5_path = args_tuple
+    chunk_idx = ep_idx // CHUNKS_SIZE
+
+    with h5py.File(h5_path, "r") as h5f:
+        state = read_and_concat(h5f, STATE_KEYS)
+        action = read_and_concat(h5f, ACTION_KEYS)
+        T = state.shape[0]
+
+        # --- Parquet (global index fixed up later) ---
+        df = build_parquet(state, action, ep_idx, fps, task)
+        parquet_dir = output_dir / "data" / f"chunk-{chunk_idx:03d}"
+        parquet_dir.mkdir(parents=True, exist_ok=True)
+        parquet_path = parquet_dir / f"episode_{ep_idx:06d}.parquet"
+        df.to_parquet(parquet_path, index=False)
+
+        # --- Videos ---
+        for h5_key, cam_name in CAMERA_KEYS.items():
+            frames = h5f[h5_key][:]
+            video_dir = (
+                output_dir / "videos" / f"chunk-{chunk_idx:03d}"
+                / f"observation.images.{cam_name}"
+            )
+            video_path = video_dir / f"episode_{ep_idx:06d}.mp4"
+            encode_video(frames, video_path, fps)
+
+    return T
+
+
+# ---------------------------------------------------------------------------
 # Main conversion
 # ---------------------------------------------------------------------------
 
@@ -233,6 +275,7 @@ def convert(
     fps: float,
     task: str,
     max_episodes: int | None = None,
+    num_workers: int | None = None,
 ) -> None:
     h5_files = get_h5_files(input_dir)
     if not h5_files:
@@ -260,45 +303,47 @@ def convert(
     meta_dir = output_dir / "meta"
     meta_dir.mkdir(parents=True, exist_ok=True)
 
-    total_frames = 0
-
-    for ep_idx, h5_path in enumerate(tqdm(h5_files, desc="Converting episodes")):
-        chunk_idx = ep_idx // CHUNKS_SIZE
-
-        with h5py.File(h5_path, "r") as h5f:
-            # --- State & Action ---
-            state = read_and_concat(h5f, STATE_KEYS)
-            action = read_and_concat(h5f, ACTION_KEYS)
-            T = state.shape[0]
-
-            # --- Parquet ---
-            df = build_parquet(state, action, ep_idx, fps, task)
-            # Adjust global index
-            df["index"] = df["index"] + total_frames
-
-            parquet_dir = output_dir / "data" / f"chunk-{chunk_idx:03d}"
-            parquet_dir.mkdir(parents=True, exist_ok=True)
-            parquet_path = parquet_dir / f"episode_{ep_idx:06d}.parquet"
-            df.to_parquet(parquet_path, index=False)
-
-            # --- Videos ---
-            for h5_key, cam_name in CAMERA_KEYS.items():
-                frames = h5f[h5_key][:]  # (T, H, W, C) uint8
-                video_dir = (
-                    output_dir
-                    / "videos"
-                    / f"chunk-{chunk_idx:03d}"
-                    / f"observation.images.{cam_name}"
-                )
-                video_path = video_dir / f"episode_{ep_idx:06d}.mp4"
-                encode_video(frames, video_path, fps)
-
-            total_frames += T
-
-    # --- info.json ---
+    # Write info.json early (total_frames updated after conversion)
     info = build_info_json(len(h5_files), fps, state_dim, action_dim, camera_shapes)
-    info["total_frames"] = total_frames
+    with open(meta_dir / "info.json", "w") as f:
+        json.dump(info, f, indent=4)
+    log.info("Wrote initial info.json")
 
+    if num_workers is None:
+        num_workers = min(os.cpu_count() or 1, len(h5_files))
+
+    worker_fn = partial(convert_episode, output_dir=output_dir, fps=fps, task=task)
+    indexed_files = list(enumerate(h5_files))
+
+    if num_workers <= 1:
+        # Sequential fallback
+        frame_counts = []
+        for item in tqdm(indexed_files, desc="Converting episodes"):
+            frame_counts.append(worker_fn(item))
+    else:
+        log.info("Using %d parallel workers", num_workers)
+        with mp.Pool(num_workers) as pool:
+            frame_counts = list(tqdm(
+                pool.imap(worker_fn, indexed_files),
+                total=len(indexed_files),
+                desc="Converting episodes",
+            ))
+
+    # --- Fix up global index in parquet files ---
+    cumulative = 0
+    for ep_idx, T in enumerate(frame_counts):
+        if cumulative > 0:
+            chunk_idx = ep_idx // CHUNKS_SIZE
+            parquet_path = output_dir / "data" / f"chunk-{chunk_idx:03d}" / f"episode_{ep_idx:06d}.parquet"
+            df = pd.read_parquet(parquet_path)
+            df["index"] = df["index"] + cumulative
+            df.to_parquet(parquet_path, index=False)
+        cumulative += T
+
+    total_frames = cumulative
+
+    # --- Update info.json with final total_frames ---
+    info["total_frames"] = total_frames
     with open(meta_dir / "info.json", "w") as f:
         json.dump(info, f, indent=4)
 
@@ -336,6 +381,10 @@ def main():
         "--max-episodes", type=int, default=None,
         help="Process at most N episodes (for testing)",
     )
+    parser.add_argument(
+        "--num-workers", type=int, default=None,
+        help="Number of parallel workers (default: number of CPUs)",
+    )
     args = parser.parse_args()
 
     convert(
@@ -344,6 +393,7 @@ def main():
         fps=args.fps,
         task=args.task,
         max_episodes=args.max_episodes,
+        num_workers=args.num_workers,
     )
 
 
