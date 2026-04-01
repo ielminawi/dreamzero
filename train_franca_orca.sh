@@ -10,6 +10,7 @@
 #SBATCH --account=ls_polle
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=rjiang@ethz.ch
+#SBATCH --gres=gpumem:40g
 
 # ============================================================
 # Environment
@@ -17,7 +18,7 @@
 module load stack/2024-06 gcc/12.2.0
 module load eth_proxy
 source $SCRATCH/dreamzero/venv/bin/activate
-cd $SCRATCH/dreamzero/dreamzero
+cd $SCRATCH/dreamzero
 
 export PYTHONUNBUFFERED=1
 export NCCL_DEBUG=WARN
