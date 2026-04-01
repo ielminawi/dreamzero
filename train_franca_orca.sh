@@ -10,7 +10,7 @@
 #SBATCH --account=ls_polle
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=rjiang@ethz.ch
-#SBATCH --gres=gpumem:40g
+#SBATCH --gres=gpumem:80g
 
 # ============================================================
 # Environment
