@@ -116,19 +116,29 @@ def encode_video(
     output_path: Path,
     fps: float,
     codec: str = "mp4v",
-) -> None:
-    """Encode (T, H, W, 3) uint8 RGB frames to an MP4 file."""
+    target_resolution: tuple[int, int] | None = None,
+) -> tuple[int, int, int]:
+    """Encode (T, H, W, 3) uint8 RGB frames to an MP4 file.
+
+    Returns (H, W, C) of the written frames (after any resize).
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     T, H, W, C = frames.shape
+    if target_resolution is not None:
+        W, H = target_resolution  # target_resolution is (width, height)
     fourcc = cv2.VideoWriter_fourcc(*codec)
     writer = cv2.VideoWriter(str(output_path), fourcc, fps, (W, H))
     if not writer.isOpened():
         raise RuntimeError(f"Failed to open video writer for {output_path}")
     for t in range(T):
+        frame = frames[t]
+        if target_resolution is not None and (frame.shape[1] != W or frame.shape[0] != H):
+            frame = cv2.resize(frame, (W, H), interpolation=cv2.INTER_AREA)
         # Convert RGB → BGR for OpenCV
-        bgr = cv2.cvtColor(frames[t], cv2.COLOR_RGB2BGR)
+        bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         writer.write(bgr)
     writer.release()
+    return (H, W, C)
 
 
 def build_parquet(
@@ -235,6 +245,7 @@ def convert_episode(
     output_dir: Path,
     fps: float,
     task: str,
+    target_resolution: tuple[int, int] | None = None,
 ) -> int:
     """Convert a single episode. Returns the number of frames."""
     ep_idx, h5_path = args_tuple
@@ -260,7 +271,7 @@ def convert_episode(
                 / f"observation.images.{cam_name}"
             )
             video_path = video_dir / f"episode_{ep_idx:06d}.mp4"
-            encode_video(frames, video_path, fps)
+            encode_video(frames, video_path, fps, target_resolution=target_resolution)
 
     return T
 
@@ -276,6 +287,7 @@ def convert(
     task: str,
     max_episodes: int | None = None,
     num_workers: int | None = None,
+    target_resolution: tuple[int, int] | None = None,
 ) -> None:
     h5_files = get_h5_files(input_dir)
     if not h5_files:
@@ -294,10 +306,16 @@ def convert(
         camera_shapes = {}
         for h5_key, cam_name in CAMERA_KEYS.items():
             shape = h5f[h5_key].shape  # (T, H, W, C)
-            camera_shapes[cam_name] = (shape[1], shape[2], shape[3])
+            if target_resolution is not None:
+                W, H = target_resolution
+                camera_shapes[cam_name] = (H, W, shape[3])
+            else:
+                camera_shapes[cam_name] = (shape[1], shape[2], shape[3])
 
     log.info("State dim: %d, Action dim: %d", state_dim, action_dim)
     log.info("Cameras: %s", {k: v for k, v in camera_shapes.items()})
+    if target_resolution is not None:
+        log.info("Target resolution: %dx%d", target_resolution[0], target_resolution[1])
 
     # Prepare output dirs
     meta_dir = output_dir / "meta"
@@ -312,7 +330,7 @@ def convert(
     if num_workers is None:
         num_workers = min(os.cpu_count() or 1, len(h5_files))
 
-    worker_fn = partial(convert_episode, output_dir=output_dir, fps=fps, task=task)
+    worker_fn = partial(convert_episode, output_dir=output_dir, fps=fps, task=task, target_resolution=target_resolution)
     indexed_files = list(enumerate(h5_files))
 
     if num_workers <= 1:
@@ -385,7 +403,16 @@ def main():
         "--num-workers", type=int, default=None,
         help="Number of parallel workers (default: number of CPUs)",
     )
+    parser.add_argument(
+        "--target-resolution", type=str, default=None,
+        help="Resize all cameras to WxH (e.g. '640x480'). Required when cameras have different resolutions.",
+    )
     args = parser.parse_args()
+
+    target_resolution = None
+    if args.target_resolution:
+        w, h = args.target_resolution.split("x")
+        target_resolution = (int(w), int(h))
 
     convert(
         input_dir=Path(args.input_dir),
@@ -394,6 +421,7 @@ def main():
         task=args.task,
         max_episodes=args.max_episodes,
         num_workers=args.num_workers,
+        target_resolution=target_resolution,
     )
 
 
