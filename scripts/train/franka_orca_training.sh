@@ -86,6 +86,8 @@ torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment
     save_lora_only=true \
     max_chunk_size=4 \
     frame_seqlen=880 \
+    max_state_dim=48 \
+    max_action_dim=48 \
     save_strategy=steps \
     franka_orca_data_root=$FRANKA_ORCA_DATA_ROOT \
     dit_version=$WAN_CKPT_DIR \
