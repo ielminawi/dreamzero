@@ -701,6 +701,19 @@ class BaseExperiment(ABC):
             safetensors_index_path = os.path.join(ckpt_dir, "model.safetensors.index.json")
             safetensors_path = os.path.join(ckpt_dir, "model.safetensors")
 
+            # Pre-compute model parameter shapes for shape-mismatch filtering
+            # (needed when fine-tuning with different action/state dims than pretrained)
+            model_shapes = {k: v.shape for k, v in model.state_dict().items()}
+
+            def _filter_shape_mismatches(sd):
+                filtered = {}
+                for k, v in sd.items():
+                    if k in model_shapes and v.shape != model_shapes[k]:
+                        mprint(f"  Skipping {k}: ckpt {list(v.shape)} vs model {list(model_shapes[k])}")
+                    else:
+                        filtered[k] = v
+                return filtered
+
             if os.path.exists(safetensors_index_path):
                 with open(safetensors_index_path, 'r') as f:
                     index = json.load(f)
@@ -708,11 +721,13 @@ class BaseExperiment(ABC):
                     shard_path = os.path.join(ckpt_dir, shard_file)
                     mprint(f"Loading shard: {shard_path}")
                     shard_state_dict = load_file(shard_path)
+                    shard_state_dict = _filter_shape_mismatches(shard_state_dict)
                     model.load_state_dict(shard_state_dict, strict=False)
                     del shard_state_dict
                     gc.collect()
             elif os.path.exists(safetensors_path):
                 state_dict = load_file(safetensors_path)
+                state_dict = _filter_shape_mismatches(state_dict)
                 model.load_state_dict(state_dict, strict=False)
             else:
                 raise FileNotFoundError(
