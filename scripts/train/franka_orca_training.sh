@@ -56,14 +56,14 @@ torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment
     data=dreamzero/franka_orca_relative \
     wandb_project=dreamzero \
     train_architecture=lora \
-    num_frames=49 \
-    action_horizon=48 \
+    num_frames=33 \
+    action_horizon=24 \
     num_views=2 \
     model=dreamzero/vla \
     model/dreamzero/action_head=wan_flow_matching_action_tf \
     model/dreamzero/transform=dreamzero_cotrain \
     num_frame_per_block=2 \
-    num_action_per_block=48 \
+    num_action_per_block=24 \
     num_state_per_block=1 \
     seed=42 \
     training_args.learning_rate=1e-5 \
