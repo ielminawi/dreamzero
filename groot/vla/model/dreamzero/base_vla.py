@@ -282,6 +282,25 @@ class VLA(PreTrainedModel):
         safetensors_path = os.path.join(pretrained_model_name_or_path, "model.safetensors")
         safetensors_index_path = os.path.join(pretrained_model_name_or_path, "model.safetensors.index.json")
 
+        # Pre-compute model parameter shapes for shape-mismatch filtering
+        # (needed when fine-tuning with different action/state dims than pretrained)
+        model_state = {k: v.shape for k, v in model.state_dict().items()}
+
+        def filter_shape_mismatches(state_dict, model_shapes):
+            """Remove keys whose shapes don't match the model, to avoid RuntimeError."""
+            filtered = {}
+            skipped = []
+            for k, v in state_dict.items():
+                if k in model_shapes and v.shape != model_shapes[k]:
+                    skipped.append(f"{k}: ckpt {list(v.shape)} vs model {list(model_shapes[k])}")
+                else:
+                    filtered[k] = v
+            if skipped:
+                print(f"Skipped {len(skipped)} keys with shape mismatch (will be randomly initialized):")
+                for s in skipped:
+                    print(f"  {s}")
+            return filtered
+
         if os.path.exists(safetensors_index_path):
             with open(safetensors_index_path, 'r') as f:
                 index = json.load(f)
@@ -292,6 +311,7 @@ class VLA(PreTrainedModel):
                 shard_path = os.path.join(pretrained_model_name_or_path, shard_file)
                 print(f"Loading shard: {shard_path}")
                 shard_state_dict = load_file(shard_path)
+                shard_state_dict = filter_shape_mismatches(shard_state_dict, model_state)
                 missing_keys, unexpected_keys = model.load_state_dict(shard_state_dict, strict=False)
                 if missing_keys:
                     missing_keys_accum.update(missing_keys)
@@ -310,6 +330,7 @@ class VLA(PreTrainedModel):
             # Handle single safetensors file
             print(f"Loading weights from safetensors: {safetensors_path}")
             state_dict = load_file(safetensors_path)
+            state_dict = filter_shape_mismatches(state_dict, model_state)
             missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
             if missing_keys:
                 print(f"Missing keys when loading pretrained weights: {missing_keys}")
