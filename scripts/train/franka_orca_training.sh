@@ -13,6 +13,7 @@
 #     git clone https://huggingface.co/GEAR-Dreams/DreamZero-AgiBot ./checkpoints/DreamZero-AgiBot
 
 export HYDRA_FULL_ERROR=1
+export ATTENTION_BACKEND=torch
 
 # ============ CHANGE THESE VARIABLES ============
 # Dataset path (LeRobot format with GEAR metadata)
