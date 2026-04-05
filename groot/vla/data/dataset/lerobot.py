@@ -1039,11 +1039,14 @@ class LeRobotSingleDataset(Dataset):
             # NOTE(FH): different lerobot dataset versions have different keys for the number of channels and fps
             try:
                 channels = le_video_meta["shape"][le_video_meta["names"].index("channel")]
+            except ValueError:
+                channels = le_video_meta["shape"][le_video_meta["names"].index("channels")]
+            if "video_info" in le_video_meta:
                 fps = le_video_meta["video_info"]["video.fps"]
-            except (ValueError, KeyError):
-                # channels = le_video_meta["shape"][le_video_meta["names"].index("channels")]
-                channels = le_video_meta["info"]["video.channels"]
+            elif "info" in le_video_meta:
                 fps = le_video_meta["info"]["video.fps"]
+            else:
+                raise KeyError(f"Cannot find fps in video metadata for {new_key}: {list(le_video_meta.keys())}")
             simplified_modality_meta["video"][new_key] = {
                 "resolution": [width, height],
                 "channels": channels,
