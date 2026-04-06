@@ -159,3 +159,91 @@ States:
 - `PD` = pending (waiting for resources)
 - `R` = running
 - `CG` = completing
+
+### Lambda
+
+```
+  # Create workspace
+  mkdir -p ~/Dreamzero/{checkpoints,data,output,logs}
+
+  # Install miniconda if not already present
+  # (Lambda instances often have it pre-installed — check with `conda --version`)
+  wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh
+  bash Miniconda3-latest-Linux-aarch64.sh -b -p $HOME/miniconda3
+  eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
+
+  # Create environment
+  conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+  conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+  conda create -n dreamzero python=3.11 -y
+  conda activate dreamzero
+
+  # Deps
+  cd ~/Dreamzero
+  git clone <YOUR_REPO_URL> repo   # or scp your local copy
+  cd repo
+
+  pip install -e . --extra-index-url https://download.pytorch.org/whl/cu129
+  MAX_JOBS=8 pip install --no-build-isolation flash-attn
+  pip install --no-build-isolation transformer_engine[pytorch]
+  pip install packaging setuptools wheel ninja psutil
+
+  # Models
+  pip install "huggingface_hub[cli]"
+  hf download GEAR-Dreams/DreamZero-AgiBot \
+      --local-dir ~/Dreamzero/repo/checkpoints/DreamZero-AgiBot
+  
+  hf download Wan-AI/Wan2.1-I2V-14B-480P \
+      --local-dir ~/dreamzero/repo/checkpoints/Wan2.1-I2V-14B-480P
+
+  hf download google/umt5-xxl \
+      --local-dir ~/dreamzero/repo/checkpoints/umt5-xxl
+
+  # Data
+
+  rsync -av --progress -e "ssh -c aes128-gcm@openssh.com -o Compression=no" \
+    20250826_111157.h5 ubuntu@192.222.56.227:~/Dreamzero/data
+
+  cd ~/Dreamzero/repo
+  conda activate dreamzero
+
+  # Step 5a: HDF5 → LeRobot format
+  python scripts/data/convert_h5_to_lerobot.py \
+      --input-dir ./data/raw_h5 \
+      --output-dir ./data/franka_orca_lerobot \
+      --fps 50 \
+      --task "bimanual manipulation" \
+      --target-resolution 640x480
+
+  # Step 5b: Generate GEAR metadata
+  python3 scripts/data/convert_lerobot_to_gear.py \
+      --dataset-path ~/Dreamzero/data/franka_orca_lerobot \
+      --embodiment-tag franka_orca_bimanual \
+      --state-keys '{"left_arm_joint_pos": [0, 7], "right_arm_joint_pos": [7, 14], "left_hand_joint_pos": [14, 31],
+  "right_hand_joint_pos": [31, 48]}' \
+      --action-keys '{"left_arm_joint_pos": [0, 7], "right_arm_joint_pos": [7, 14], "left_hand_joint_pos": [14, 31],
+  "right_hand_joint_pos": [31, 48]}' \
+      --relative-action-keys left_arm_joint_pos right_arm_joint_pos left_hand_joint_pos right_hand_joint_pos \
+      --task-key annotation.task --action-horizon 48 --force
+
+  Verify the conversion:
+  ls ~/Dreamzero/data/franka_orca_lerobot/meta/
+  # Should contain: modality.json, embodiment.json, stats.json,
+  # relative_stats_dreamzero.json, tasks.jsonl, episodes.jsonl, info.json
+
+  # Training
+  cd ~/Dreamzero/repo
+
+  # Set paths
+  export FRANKA_ORCA_DATA_ROOT=~/Dreamzero/data/franka_orca_lerobot
+  export OUTPUT_DIR=~/Dreamzero/output/dreamzero_franka_orca_lora
+  export NUM_GPUS=1
+
+  # Set NCCL/performance env vars
+  export PYTHONUNBUFFERED=1
+  export NCCL_DEBUG=WARN
+  export OMP_NUM_THREADS=16
+
+  # Launch training
+  bash scripts/train/franka_orca_training.sh
+```
