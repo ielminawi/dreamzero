@@ -76,7 +76,7 @@ def main():
     zero_action = torch.zeros(1, 48, device=env.device)
     try:
         while args.num_steps == 0 or step < args.num_steps:
-            obs, _, _, _, _ = env.step(zero_action)
+            obs, _ = env.step(zero_action)
             step += 1
             if step % 100 == 0:
                 print(f"  Step {step}...")
