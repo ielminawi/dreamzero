@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && \
 
 # Install IsaacLab (symlink Isaac Sim so IsaacLab can find its Python)
 WORKDIR /opt
-RUN git clone https://github.com/isaac-sim/IsaacLab.git && \
+RUN git clone --branch v2.1.0 https://github.com/isaac-sim/IsaacLab.git && \
     cd IsaacLab && \
     ln -s /isaac-sim _isaac_sim && \
     ./isaaclab.sh --install
