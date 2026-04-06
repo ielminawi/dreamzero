@@ -14,8 +14,8 @@ if [ -z "${ATTENTION_BACKEND:-}" ]; then
         export ATTENTION_BACKEND=torch
         echo "GH200 detected -> ATTENTION_BACKEND=torch"
     elif python -c "import flash_attn" 2>/dev/null; then
-        export ATTENTION_BACKEND=flash
-        echo "Flash Attention available -> ATTENTION_BACKEND=flash"
+        export ATTENTION_BACKEND=FA2
+        echo "Flash Attention available -> ATTENTION_BACKEND=FA2"
     else
         export ATTENTION_BACKEND=torch
         echo "No Flash Attention found -> ATTENTION_BACKEND=torch"
