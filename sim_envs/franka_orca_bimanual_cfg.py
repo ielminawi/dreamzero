@@ -160,10 +160,11 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             focal_length=24.0,
             horizontal_aperture=20.955,
         ),
-        init_state=CameraCfg.InitialStateCfg(
+        offset=CameraCfg.OffsetCfg(
             # From left_cam extrinsics (cam_to_base): translation = [0.204, -0.255, 0.434]
             pos=(0.204, -0.255, 0.434),
             rot=(0.68, -0.19, 0.68, -0.19),  # Approximate — tune visually in sim
+            convention="world",
         ),
     )
 
@@ -179,10 +180,11 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             focal_length=24.0,
             horizontal_aperture=20.955,
         ),
-        init_state=CameraCfg.InitialStateCfg(
+        offset=CameraCfg.OffsetCfg(
             # From right_cam extrinsics: translation = [0.175, 0.346, 0.469]
             pos=(0.175, 0.346, 0.469),
             rot=(0.66, -0.22, 0.66, -0.22),  # Approximate — tune visually in sim
+            convention="world",
         ),
     )
 
