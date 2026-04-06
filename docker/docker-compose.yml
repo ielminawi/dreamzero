@@ -92,7 +92,7 @@ services:
     ipc: host
     environment:
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
-      - FRANKA_ORCA_DATA_ROOT=/data
+      - FRANKA_ORCA_DATA_ROOT=/data/franka_orca_lerobot
       - OUTPUT_DIR=/output
       - WAN_CKPT_DIR=/checkpoints/Wan2.1-I2V-14B-480P
       - TOKENIZER_DIR=/checkpoints/umt5-xxl
