@@ -61,12 +61,12 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
         spawn=sim_utils.GroundPlaneCfg(),
     )
 
-    # Table
+    # Table (simple cuboid stand-in; swap for USD mesh once Nucleus is available)
     table = AssetBaseCfg(
         prim_path="/World/Table",
-        spawn=sim_utils.UsdFileCfg(
-            usd_path="nucleus://Isaac/Props/Mounts/SeattleLabTable/table_instanceable.usd",
-            scale=(1.0, 1.0, 1.0),
+        spawn=sim_utils.CuboidCfg(
+            size=(1.2, 0.8, 0.05),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.4, 0.2)),
         ),
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0.5, 0.0, 0.0)),
     )
