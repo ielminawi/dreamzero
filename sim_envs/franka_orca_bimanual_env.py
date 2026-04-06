@@ -36,7 +36,7 @@ class FrankaOrcaBimanualEnv(ManagerBasedEnv):
     HAND_SLICE = slice(7, 24)
 
     def __init__(self, cfg: FrankaOrcaBimanualEnvCfg, render_mode=None, **kwargs):
-        super().__init__(cfg, render_mode=render_mode, **kwargs)
+        super().__init__(cfg, **kwargs)
         self.max_episode_length = int(cfg.episode_length_s / cfg.sim.dt)
         self._step_count = 0
         self._relative_actions = True  # Match training config
