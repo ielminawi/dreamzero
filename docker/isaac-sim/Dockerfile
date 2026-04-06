@@ -7,7 +7,7 @@ ENV PYTHONUNBUFFERED=1
 ENV TERM=xterm
 
 # Install git (not included in Isaac Sim base image)
-RUN apt-get update && apt-get install -y --no-install-recommends git && \
+RUN apt-get update && apt-get install -y --no-install-recommends git cmake build-essential && \
     rm -rf /var/lib/apt/lists/*
 
 # Install IsaacLab (symlink Isaac Sim so IsaacLab can find its Python)
