@@ -1,0 +1,82 @@
+services:
+  dreamzero-inference:
+    build:
+      context: ..
+      dockerfile: docker/dreamzero-inference/Dockerfile
+    container_name: dreamzero-inference
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - ATTENTION_BACKEND=${ATTENTION_BACKEND:-TE}
+      - ENABLE_DIT_CACHE=${ENABLE_DIT_CACHE:-true}
+      - NCCL_DEBUG=WARN
+    volumes:
+      - ${HOST_CHECKPOINT_DIR:-../checkpoints}:/checkpoints:ro
+      - ${HOST_OUTPUT_DIR:-../output}/inference:/output
+    ports:
+      - "${DREAMZERO_PORT:-8000}:8000"
+    command: >
+      --nproc_per_node=${NUM_INFERENCE_GPUS:-1}
+      --standalone
+      socket_test_optimized_AR.py
+      --port 8000
+      --model-path ${MODEL_PATH:-/checkpoints/dreamzero_franka_orca_lora}
+      --enable-dit-cache
+      --embodiment franka_orca_bimanual
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s  # Model loading takes several minutes
+    networks:
+      - dreamzero-net
+
+  isaac-sim:
+    build:
+      context: ..
+      dockerfile: docker/isaac-sim/Dockerfile
+    container_name: isaac-sim
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - OMNI_KIT_ALLOW_ROOT=1
+      - ACCEPT_EULA=Y
+      - LIVESTREAM_ENABLED=true
+    volumes:
+      - ${HOST_OUTPUT_DIR:-../output}/sim:/output
+      - ../sim_envs:/app/sim_envs
+      - ../configs:/app/configs
+    ports:
+      - "${LIVESTREAM_PORT:-8211}:8211"        # Omniverse Streaming signaling
+      - "${LIVESTREAM_DATA_PORT:-49100}:49100"  # Omniverse Streaming data
+    command: >
+      eval_utils/run_sim_eval_bimanual.py
+      --headless
+      --enable omni.kit.livestream.native
+      --host dreamzero-inference
+      --port 8000
+      --instruction "${EVAL_INSTRUCTION:-pick up the object}"
+      --episodes ${EVAL_EPISODES:-10}
+      --open-loop-horizon ${EVAL_OPEN_LOOP_HORIZON:-24}
+    depends_on:
+      dreamzero-inference:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+    networks:
+      - dreamzero-net
+
+networks:
+  dreamzero-net:
+    driver: bridge

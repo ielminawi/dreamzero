@@ -39,6 +39,7 @@ class Args:
     enable_dit_cache: bool = False
     index: int = 0
     max_chunk_size: int | None = None  # If None, use config value. Otherwise override max_chunk_size for inference.
+    embodiment: str = "oxe_droid"  # "oxe_droid" (8-dim) or "franka_orca_bimanual" (48-dim)
 
 
 class ARDroidRoboarenaPolicy:
@@ -59,10 +60,12 @@ class ARDroidRoboarenaPolicy:
         groot_policy: GrootSimPolicy,
         signal_group: dist.ProcessGroup,
         output_dir: str | None = None,
+        embodiment: str = "oxe_droid",
     ) -> None:
         self._policy = groot_policy
         self._signal_group = signal_group
         self._output_dir = output_dir
+        self._embodiment = embodiment
         
         # Frame buffers for accumulation (per camera view)
         self._frame_buffers: dict[str, list[np.ndarray]] = {
@@ -149,23 +152,32 @@ class ARDroidRoboarenaPolicy:
                 converted[droid_key] = video
         
         # Convert state observations
-        if "observation/joint_position" in obs:
-            joint_pos = obs["observation/joint_position"]
-            # Reshape to (1, 7) if needed
-            if joint_pos.ndim == 1:
-                joint_pos = joint_pos.reshape(1, -1)
-            converted["state.joint_position"] = joint_pos.astype(np.float64)
+        if self._embodiment == "franka_orca_bimanual" and "observation/full_state" in obs:
+            # Bimanual: 48-dim state [left_arm(7), right_arm(7), left_hand(17), right_hand(17)]
+            full_state = obs["observation/full_state"]
+            if full_state.ndim == 1:
+                full_state = full_state.reshape(1, -1)
+            converted["state.left_arm_joint_pos"] = full_state[:, 0:7].astype(np.float64)
+            converted["state.right_arm_joint_pos"] = full_state[:, 7:14].astype(np.float64)
+            converted["state.left_hand_joint_pos"] = full_state[:, 14:31].astype(np.float64)
+            converted["state.right_hand_joint_pos"] = full_state[:, 31:48].astype(np.float64)
         else:
-            converted["state.joint_position"] = np.zeros((1, 7), dtype=np.float64)
-        
-        if "observation/gripper_position" in obs:
-            gripper_pos = obs["observation/gripper_position"]
-            # Reshape to (1, 1) if needed
-            if gripper_pos.ndim == 1:
-                gripper_pos = gripper_pos.reshape(1, -1)
-            converted["state.gripper_position"] = gripper_pos.astype(np.float64)
-        else:
-            converted["state.gripper_position"] = np.zeros((1, 1), dtype=np.float64)
+            # DROID: 7-dim joint + 1-dim gripper
+            if "observation/joint_position" in obs:
+                joint_pos = obs["observation/joint_position"]
+                if joint_pos.ndim == 1:
+                    joint_pos = joint_pos.reshape(1, -1)
+                converted["state.joint_position"] = joint_pos.astype(np.float64)
+            else:
+                converted["state.joint_position"] = np.zeros((1, 7), dtype=np.float64)
+
+            if "observation/gripper_position" in obs:
+                gripper_pos = obs["observation/gripper_position"]
+                if gripper_pos.ndim == 1:
+                    gripper_pos = gripper_pos.reshape(1, -1)
+                converted["state.gripper_position"] = gripper_pos.astype(np.float64)
+            else:
+                converted["state.gripper_position"] = np.zeros((1, 1), dtype=np.float64)
         
         # Convert prompt
         if "prompt" in obs:
@@ -176,55 +188,63 @@ class ARDroidRoboarenaPolicy:
         return converted
     
     def _convert_action(self, action_dict: dict) -> np.ndarray:
-        """Convert AR_droid action dict to roboarena action array.
-        
-        AR_droid format:
-            - action.joint_position: (N, 7)
-            - action.gripper_position: (N,) or (N, 1)
-        
-        Roboarena format:
-            - action: (N, 8) - 7 joint positions + 1 gripper
+        """Convert action dict to output array.
+
+        For oxe_droid (8-dim):
+            action.joint_position (N, 7) + action.gripper_position (N, 1) -> (N, 8)
+
+        For franka_orca_bimanual (48-dim):
+            Concatenates all action components into (N, 48):
+            [left_arm(7), right_arm(7), left_hand(17), right_hand(17)]
         """
-        joint_action = None
-        gripper_action = None
-        
-        # Extract actions from dict
+        # Collect all action tensors, converting to numpy
+        actions_by_key = {}
         for key, value in action_dict.items():
-            if "joint_position" in key:
-                joint_action = value
-            elif "gripper_position" in key or "gripper" in key:
-                gripper_action = value
-        
-        if joint_action is None:
-            # Fallback: return zeros
-            return np.zeros((1, 8), dtype=np.float32)
-        
-        # Convert to numpy if tensor
-        if isinstance(joint_action, torch.Tensor):
-            joint_action = joint_action.cpu().numpy()
-        
-        # Ensure 2D shape (N, 7)
-        if joint_action.ndim == 1:
-            joint_action = joint_action.reshape(1, -1)
-        
-        N = joint_action.shape[0]
-        
-        # Handle gripper action
-        if gripper_action is not None:
-            if isinstance(gripper_action, torch.Tensor):
-                gripper_action = gripper_action.cpu().numpy()
-            # Reshape to (N, 1) if needed
-            if gripper_action.ndim == 1:
-                gripper_action = gripper_action.reshape(-1, 1)
+            if isinstance(value, torch.Tensor):
+                value = value.cpu().numpy()
+            if isinstance(value, np.ndarray):
+                if value.ndim == 1:
+                    value = value.reshape(1, -1)
+                actions_by_key[key] = value
+
+        if not actions_by_key:
+            fallback_dim = 48 if self._embodiment == "franka_orca_bimanual" else 8
+            return np.zeros((1, fallback_dim), dtype=np.float32)
+
+        if self._embodiment == "franka_orca_bimanual":
+            # For bimanual: concatenate all action components in order
+            # The model outputs action keys matching the training config order
+            ordered_keys = [
+                "action.left_arm_joint_pos",
+                "action.right_arm_joint_pos",
+                "action.left_hand_joint_pos",
+                "action.right_hand_joint_pos",
+            ]
+            parts = []
+            for k in ordered_keys:
+                if k in actions_by_key:
+                    parts.append(actions_by_key[k])
+            if parts:
+                return np.concatenate(parts, axis=-1).astype(np.float32)
+            # Fallback: concatenate whatever is available
+            return np.concatenate(list(actions_by_key.values()), axis=-1).astype(np.float32)
+        else:
+            # oxe_droid: joint_position (7) + gripper_position (1) -> (N, 8)
+            joint_action = None
+            gripper_action = None
+            for key, value in actions_by_key.items():
+                if "joint_position" in key:
+                    joint_action = value
+                elif "gripper_position" in key or "gripper" in key:
+                    gripper_action = value
+            if joint_action is None:
+                return np.zeros((1, 8), dtype=np.float32)
+            N = joint_action.shape[0]
+            if gripper_action is None:
+                gripper_action = np.zeros((N, 1), dtype=np.float32)
             elif gripper_action.ndim == 0:
                 gripper_action = gripper_action.reshape(1, 1)
-        else:
-            gripper_action = np.zeros((N, 1), dtype=np.float32)
-        
-        # Concatenate: (N, 7) + (N, 1) -> (N, 8)
-        action = np.concatenate([joint_action, gripper_action], axis=-1).astype(np.float32)
-        
-        return action
+            return np.concatenate([joint_action, gripper_action], axis=-1).astype(np.float32)
     
     def _broadcast_batch_to_workers(self, obs: dict) -> None:
         """Broadcast batch data from rank 0 to all other ranks."""
@@ -748,7 +768,7 @@ def main(args: Args) -> None:
     # to autoregressive nature of the model (several possible shapes).
     torch._dynamo.config.recompile_limit = 800
 
-    embodiment_tag = "oxe_droid"
+    embodiment_tag = args.embodiment
     model_path = args.model_path
     policy_metadata = {
         "embodiment": embodiment_tag,
@@ -793,6 +813,7 @@ def main(args: Args) -> None:
         groot_policy=policy,
         signal_group=signal_group,
         output_dir=output_dir,
+        embodiment=embodiment_tag,
     )
     
     # Configure server for AR_droid (2 external cameras, wrist camera, joint position actions)
