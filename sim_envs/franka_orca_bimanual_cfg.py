@@ -244,16 +244,18 @@ class FrankaOrcaBimanualEnvCfg(ManagerBasedEnvCfg):
     episode_length_s = 30.0  # 30 seconds = 1500 steps at 50Hz
 
     # Observations
-    observations = ObservationGroupCfg(
-        policy=ObservationGroupCfg(
-            concatenate_terms=False,
-            terms={
-                "left_arm_joint_pos": ObservationTermCfg(func=get_left_arm_joint_pos),
-                "right_arm_joint_pos": ObservationTermCfg(func=get_right_arm_joint_pos),
-                "left_hand_joint_pos": ObservationTermCfg(func=get_left_hand_joint_pos),
-                "right_hand_joint_pos": ObservationTermCfg(func=get_right_hand_joint_pos),
-                "aria_rgb_cam": ObservationTermCfg(func=get_aria_rgb),
-                "oakd_front_view": ObservationTermCfg(func=get_oakd_front),
-            },
-        ),
-    )
+    @configclass
+    class ObservationsCfg:
+        @configclass
+        class PolicyCfg(ObservationGroupCfg):
+            concatenate_terms = False
+            left_arm_joint_pos = ObservationTermCfg(func=get_left_arm_joint_pos)
+            right_arm_joint_pos = ObservationTermCfg(func=get_right_arm_joint_pos)
+            left_hand_joint_pos = ObservationTermCfg(func=get_left_hand_joint_pos)
+            right_hand_joint_pos = ObservationTermCfg(func=get_right_hand_joint_pos)
+            aria_rgb_cam = ObservationTermCfg(func=get_aria_rgb)
+            oakd_front_view = ObservationTermCfg(func=get_oakd_front)
+
+        policy: PolicyCfg = PolicyCfg()
+
+    observations: ObservationsCfg = ObservationsCfg()
