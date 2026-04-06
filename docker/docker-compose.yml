@@ -102,9 +102,12 @@ services:
       - NUM_GPUS=${NUM_GPUS:-}
       - NCCL_DEBUG=WARN
     volumes:
+      # Source code + entrypoint (mounted so edits don't need rebuild)
       - /home/ubuntu/Dreamzero/repo/groot:/app/groot:ro
       - /home/ubuntu/Dreamzero/repo/configs:/app/configs:ro
       - /home/ubuntu/Dreamzero/repo/scripts:/app/scripts:ro
+      - /home/ubuntu/Dreamzero/repo/docker/dreamzero-training/entrypoint.sh:/entrypoint.sh:ro
+      # Data, checkpoints, output
       - /home/ubuntu/Dreamzero/data:/data:ro
       - /home/ubuntu/Dreamzero/checkpoints:/checkpoints
       - /home/ubuntu/Dreamzero/output:/output
