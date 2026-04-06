@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 
 import isaaclab.sim as sim_utils
+from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedEnvCfg
 from isaaclab.managers import ObservationGroupCfg, ObservationTermCfg
@@ -92,14 +93,14 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             },
         ),
         actuators={
-            "arm": sim_utils.ImplicitActuatorCfg(
+            "arm": ImplicitActuatorCfg(
                 joint_names_expr=[FRANKA_ARM_JOINTS],
                 effort_limit=87.0,
                 velocity_limit=2.175,
                 stiffness=400.0,
                 damping=80.0,
             ),
-            "hand": sim_utils.ImplicitActuatorCfg(
+            "hand": ImplicitActuatorCfg(
                 joint_names_expr=[LEFT_HAND_JOINTS],
                 effort_limit=1.0,
                 velocity_limit=5.0,
@@ -130,14 +131,14 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             },
         ),
         actuators={
-            "arm": sim_utils.ImplicitActuatorCfg(
+            "arm": ImplicitActuatorCfg(
                 joint_names_expr=[FRANKA_ARM_JOINTS],
                 effort_limit=87.0,
                 velocity_limit=2.175,
                 stiffness=400.0,
                 damping=80.0,
             ),
-            "hand": sim_utils.ImplicitActuatorCfg(
+            "hand": ImplicitActuatorCfg(
                 joint_names_expr=[RIGHT_HAND_JOINTS],
                 effort_limit=1.0,
                 velocity_limit=5.0,
