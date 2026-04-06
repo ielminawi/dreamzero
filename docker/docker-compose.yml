@@ -49,6 +49,7 @@ services:
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - NVIDIA_DRIVER_CAPABILITIES=all
       - OMNI_KIT_ALLOW_ROOT=1
       - ACCEPT_EULA=Y
       - LIVESTREAM_ENABLED=true
@@ -57,6 +58,7 @@ services:
       - /home/ubuntu/Dreamzero/repo/sim_envs:/app/sim_envs:ro
       - /home/ubuntu/Dreamzero/repo/eval_utils:/app/eval_utils:ro
       - /home/ubuntu/Dreamzero/repo/configs:/app/configs:ro
+      - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
     ports:
       - "${LIVESTREAM_PORT:-8211}:8211"
       - "${LIVESTREAM_DATA_PORT:-49100}:49100"
@@ -77,7 +79,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              capabilities: [gpu]
+              capabilities: [gpu, graphics, display, compute, utility]
     networks:
       - dreamzero-net
 
