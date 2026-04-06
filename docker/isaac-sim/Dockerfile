@@ -10,6 +10,9 @@ ENV TERM=xterm
 RUN apt-get update && apt-get install -y --no-install-recommends git cmake build-essential && \
     rm -rf /var/lib/apt/lists/*
 
+# Ensure setuptools is available (needed by flatdict build)
+RUN /isaac-sim/python.sh -m pip install --no-cache-dir setuptools
+
 # Install IsaacLab (symlink Isaac Sim so IsaacLab can find its Python)
 WORKDIR /opt
 RUN git clone --branch v2.1.0 https://github.com/isaac-sim/IsaacLab.git && \
