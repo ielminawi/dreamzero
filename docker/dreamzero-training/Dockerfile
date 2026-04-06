@@ -17,24 +17,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# The base image ships PyTorch + flash-attn + transformer_engine compiled
+# together. Our pyproject.toml installs torch==2.8.0 which breaks the ABI
+# for the other two. Remove them all before installing our deps cleanly.
+RUN pip uninstall -y flash-attn transformer-engine transformer_engine 2>/dev/null || true
+
 # Copy only what's needed for pip install (source code is mounted at runtime)
 COPY pyproject.toml /app/
 COPY groot/ /app/groot/
 
-# Install Python dependencies
+# Install Python dependencies (upgrades PyTorch to 2.8.0)
 RUN pip install --no-cache-dir -e . --extra-index-url https://download.pytorch.org/whl/cu129
 
-# flash-attn: the base image may ship a version compiled against a different
-# PyTorch ABI. Remove any pre-installed copy, then build from source.
-# Building takes ~10-20 min; if it fails (e.g. no nvcc), training falls back
-# to ATTENTION_BACKEND=torch (PyTorch SDPA) automatically.
-RUN pip uninstall -y flash-attn 2>/dev/null; \
-    MAX_JOBS=8 pip install --no-cache-dir --no-build-isolation flash-attn || \
+# Rebuild flash-attn from source against torch 2.8.0.
+# Takes ~10-20 min; if it fails, training uses ATTENTION_BACKEND=torch (SDPA).
+RUN MAX_JOBS=8 pip install --no-cache-dir --no-build-isolation flash-attn || \
     echo "flash-attn build failed, will use SDPA fallback"
 
-# Install transformer engine for GH200/GB200
+# Rebuild transformer engine against torch 2.8.0.
+# Optional — only needed for TE attention backend.
 RUN pip install --no-cache-dir --no-build-isolation transformer_engine[pytorch] || \
-    echo "transformer_engine not available, skipping"
+    echo "transformer_engine build failed, skipping"
 
 # Entrypoint (small, rarely changes — bake it in)
 COPY docker/dreamzero-training/entrypoint.sh /entrypoint.sh
