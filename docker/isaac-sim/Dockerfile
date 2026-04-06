@@ -10,10 +10,11 @@ ENV TERM=xterm
 RUN apt-get update && apt-get install -y --no-install-recommends git && \
     rm -rf /var/lib/apt/lists/*
 
-# Install IsaacLab
+# Install IsaacLab (symlink Isaac Sim so IsaacLab can find its Python)
 WORKDIR /opt
 RUN git clone https://github.com/isaac-sim/IsaacLab.git && \
     cd IsaacLab && \
+    ln -s /isaac-sim _isaac_sim && \
     ./isaaclab.sh --install
 
 # Install additional Python dependencies for eval client
