@@ -65,6 +65,7 @@ services:
     command: >
       eval_utils/run_sim_eval_bimanual.py
       --headless
+      --enable_cameras
       --enable omni.kit.livestream.native
       --host dreamzero-inference
       --port 8000

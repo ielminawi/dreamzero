@@ -9,7 +9,7 @@ Usage:
         --model-path checkpoints/dreamzero_franka_orca_lora --enable-dit-cache
 
     # Then run eval:
-    python eval_utils/run_sim_eval_bimanual.py --headless \
+    python eval_utils/run_sim_eval_bimanual.py --headless --enable_cameras \
         --host localhost --port 8000 \
         --instruction "pick up the cube" --episodes 10
 """
@@ -23,9 +23,38 @@ import cv2
 import mediapy
 import numpy as np
 import torch
-import tyro
 from tqdm import tqdm
 
+# Isaac Sim must be launched before any other Isaac imports
+from isaaclab.app import AppLauncher
+
+parser = argparse.ArgumentParser(description="Bimanual Franka+Orca sim eval")
+parser.add_argument("--host", type=str, default="localhost", help="Inference server host")
+parser.add_argument("--port", type=int, default=8000, help="Inference server port")
+parser.add_argument("--instruction", type=str, default="pick up the object", help="Language task instruction")
+parser.add_argument("--episodes", type=int, default=10, help="Number of eval episodes")
+parser.add_argument("--open-loop-horizon", type=int, default=24, help="Actions per inference chunk")
+AppLauncher.add_app_launcher_args(parser)
+args = parser.parse_args()
+args.enable_cameras = True
+app_launcher = AppLauncher(args)
+simulation_app = app_launcher.app
+
+# Now safe to import Isaac/sim_envs
+import sys
+sys.path.insert(0, "/app")
+
+# Enable URDF importer extension
+import omni.kit.app
+ext_manager = omni.kit.app.get_app().get_extension_manager()
+for ext_name in ["isaacsim.asset.importer.urdf", "omni.importer.urdf", "omni.isaac.urdf"]:
+    if ext_manager.set_extension_enabled_immediate(ext_name, True):
+        print(f"[INFO] Enabled extension: {ext_name}")
+        break
+
+import sim_envs  # noqa: F401 — registers the gym environment
+from sim_envs.franka_orca_bimanual_cfg import FrankaOrcaBimanualEnvCfg
+from sim_envs.franka_orca_bimanual_env import FrankaOrcaBimanualEnv
 from eval_utils.policy_client import WebsocketClientPolicy
 
 
@@ -155,80 +184,58 @@ class DreamZeroBimanualClient:
         }
 
 
-def main(
-    episodes: int = 10,
-    headless: bool = True,
-    host: str = "localhost",
-    port: int = 8000,
-    instruction: str = "pick up the object",
-    open_loop_horizon: int = 24,
-):
-    # Launch Isaac Sim (must happen before importing IsaacLab modules)
-    from isaaclab.app import AppLauncher
+def main():
+    print("\n=== Creating FrankaOrcaBimanual-v0 environment ===")
+    cfg = FrankaOrcaBimanualEnvCfg()
+    env = FrankaOrcaBimanualEnv(cfg)
 
-    parser = argparse.ArgumentParser(description="Bimanual Franka+Orca sim eval")
-    AppLauncher.add_app_launcher_args(parser)
-    args_cli, _ = parser.parse_known_args()
-    args_cli.enable_cameras = True
-    args_cli.headless = headless
-    app_launcher = AppLauncher(args_cli)
-    simulation_app = app_launcher.app
-
-    # Import after app launch
-    import sim_envs  # noqa: F401 — registers the gym environment
-    import gymnasium as gym
-
-    # Create environment
-    from sim_envs.franka_orca_bimanual_cfg import FrankaOrcaBimanualEnvCfg
-
-    env_cfg = FrankaOrcaBimanualEnvCfg()
-    env = gym.make("FrankaOrcaBimanual-v0", cfg=env_cfg)
-
+    # Double reset (first loads assets, second stabilises materials)
+    print("Reset 1/2 (loading assets)...")
     obs, _ = env.reset()
-    obs, _ = env.reset()  # Second reset for materials to load
+    print("Reset 2/2 (stabilising)...")
+    obs, _ = env.reset()
 
     # Connect to DreamZero inference server
+    print(f"\nConnecting to inference server at {args.host}:{args.port}...")
     client = DreamZeroBimanualClient(
-        remote_host=host,
-        remote_port=port,
-        open_loop_horizon=open_loop_horizon,
+        remote_host=args.host,
+        remote_port=args.port,
+        open_loop_horizon=args.open_loop_horizon,
     )
 
     # Output directory for videos
-    video_dir = Path("output/sim") / datetime.now().strftime("%Y-%m-%d") / datetime.now().strftime("%H-%M-%S")
+    video_dir = Path("/output") / datetime.now().strftime("%Y-%m-%d") / datetime.now().strftime("%H-%M-%S")
     video_dir.mkdir(parents=True, exist_ok=True)
 
-    max_steps = env.env.max_episode_length
-    video = []
+    max_steps = env.max_episode_length
 
     with torch.no_grad():
-        for ep in range(episodes):
-            for _ in tqdm(range(max_steps), desc=f"Episode {ep+1}/{episodes}"):
-                ret = client.infer(obs, instruction)
+        for ep in range(args.episodes):
+            video = []
+            for step in tqdm(range(max_steps), desc=f"Episode {ep+1}/{args.episodes}"):
+                ret = client.infer(obs, args.instruction)
 
-                if not headless:
+                if not args.headless:
                     cv2.imshow("Cameras", cv2.cvtColor(ret["viz"], cv2.COLOR_RGB2BGR))
                     cv2.waitKey(1)
 
                 video.append(ret["viz"])
 
                 # Apply 48-dim action
-                action = torch.tensor(ret["action"], dtype=torch.float32).unsqueeze(0)
-                obs, _, term, trunc, _ = env.step(action)
-
-                if term or trunc:
-                    break
+                action = torch.tensor(ret["action"], dtype=torch.float32, device=env.device).unsqueeze(0)
+                obs, _ = env.step(action)
 
             client.reset()
-            mediapy.write_video(video_dir / f"episode_{ep}.mp4", video, fps=50)
-            video = []
+            video_path = video_dir / f"episode_{ep}.mp4"
+            mediapy.write_video(str(video_path), video, fps=50)
             obs, _ = env.reset()
 
-            print(f"Episode {ep+1} saved to {video_dir / f'episode_{ep}.mp4'}")
+            print(f"Episode {ep+1} saved to {video_path}")
 
+    print(f"\n=== Evaluation complete — {args.episodes} episodes saved to {video_dir} ===")
     env.close()
     simulation_app.close()
 
 
 if __name__ == "__main__":
-    tyro.cli(main)
+    main()
