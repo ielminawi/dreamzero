@@ -156,8 +156,8 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
     )
 
     # ---- Camera 1: "aria_rgb_cam" ----
-    # Positioned per left_cam extrinsics from calibration.
-    # cam_to_base translation + left arm base offset (0, -ARM_SEPARATION_Y/2, 0)
+    # Positioned per left_cam extrinsics from calibration (Hypothesis C).
+    # pos = left_arm_base + [tx, -ty, tz]  (Y component negated)
     # Quaternion derived from calibration rotation matrix (OpenCV→OpenGL convention).
     # Training resolution: 480x640
     aria_rgb_cam = CameraCfg(
@@ -170,16 +170,16 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             horizontal_aperture=20.955,
         ),
         offset=CameraCfg.OffsetCfg(
-            # World pos = left_arm_base (0, -0.306, 0) + cam_to_base (0.204, -0.255, 0.434)
-            pos=(0.204, -0.561, 0.434),
+            # World pos = left_arm_base (0, -0.306, 0) + (0.204, +0.255, 0.434)
+            pos=(0.204, -0.051, 0.434),
             rot=(0.660, 0.230, -0.210, -0.683),
             convention="world",
         ),
     )
 
     # ---- Camera 2: "oakd_front_view" ----
-    # Positioned per right_cam extrinsics from calibration.
-    # cam_to_base translation + right arm base offset (0, +ARM_SEPARATION_Y/2, 0)
+    # Positioned per right_cam extrinsics from calibration (Hypothesis C).
+    # pos = right_arm_base + [tx, -ty, tz]  (Y component negated)
     # Quaternion derived from calibration rotation matrix (OpenCV→OpenGL convention).
     # Training resolution: 540x960
     oakd_front_view = CameraCfg(
@@ -192,8 +192,8 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             horizontal_aperture=20.955,
         ),
         offset=CameraCfg.OffsetCfg(
-            # World pos = right_arm_base (0, 0.306, 0) + cam_to_base (0.175, 0.346, 0.469)
-            pos=(0.175, 0.652, 0.469),
+            # World pos = right_arm_base (0, 0.306, 0) + (0.175, -0.346, 0.469)
+            pos=(0.175, -0.040, 0.469),
             rot=(0.678, 0.235, -0.175, -0.674),
             convention="world",
         ),
