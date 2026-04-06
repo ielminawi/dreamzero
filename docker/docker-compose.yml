@@ -106,7 +106,7 @@ services:
       - /home/ubuntu/Dreamzero/repo/groot:/app/groot:ro
       - /home/ubuntu/Dreamzero/repo/configs:/app/configs:ro
       - /home/ubuntu/Dreamzero/repo/scripts:/app/scripts:ro
-      - /home/ubuntu/Dreamzero/repo/docker/dreamzero-training/entrypoint.sh:/entrypoint.sh:ro
+      - /home/ubuntu/Dreamzero/repo/docker/dreamzero-training/entrypoint.sh:/entrypoint.sh
       # Data, checkpoints, output
       - /home/ubuntu/Dreamzero/data:/data:ro
       - /home/ubuntu/Dreamzero/checkpoints:/checkpoints
