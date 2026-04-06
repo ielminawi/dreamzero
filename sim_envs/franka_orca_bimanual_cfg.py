@@ -22,10 +22,11 @@ from __future__ import annotations
 import os
 
 import isaaclab.sim as sim_utils
+import isaaclab.envs.mdp as mdp
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedEnvCfg
-from isaaclab.managers import ObservationGroupCfg, ObservationTermCfg
+from isaaclab.managers import ActionTermCfg, ObservationGroupCfg, ObservationTermCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import CameraCfg
 from isaaclab.utils import configclass
@@ -77,6 +78,9 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             asset_path=LEFT_URDF,
             fix_base=True,
             merge_fixed_joints=False,
+            joint_drive=sim_utils.UrdfFileCfg.JointDriveCfg(
+                gains=sim_utils.UrdfFileCfg.JointDriveCfg.GainsCfg(stiffness=0.0, damping=0.0),
+            ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
             pos=(0.0, -ARM_SEPARATION_Y / 2, 0.0),
@@ -117,6 +121,9 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             asset_path=RIGHT_URDF,
             fix_base=True,
             merge_fixed_joints=False,
+            joint_drive=sim_utils.UrdfFileCfg.JointDriveCfg(
+                gains=sim_utils.UrdfFileCfg.JointDriveCfg.GainsCfg(stiffness=0.0, damping=0.0),
+            ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
             pos=(0.0, ARM_SEPARATION_Y / 2, 0.0),
@@ -240,8 +247,33 @@ class FrankaOrcaBimanualEnvCfg(ManagerBasedEnvCfg):
         render_interval=1,
     )
 
+    # 1 physics step per control step (50 Hz control = 50 Hz physics)
+    decimation = 1
+
     # Max episode length
     episode_length_s = 30.0  # 30 seconds = 1500 steps at 50Hz
+
+    # Actions — joint position targets for both arm+hand articulations
+    @configclass
+    class ActionsCfg:
+        left_arm = mdp.JointPositionActionCfg(
+            asset_name="left_arm_hand",
+            joint_names=[FRANKA_ARM_JOINTS],
+        )
+        left_hand = mdp.JointPositionActionCfg(
+            asset_name="left_arm_hand",
+            joint_names=[LEFT_HAND_JOINTS],
+        )
+        right_arm = mdp.JointPositionActionCfg(
+            asset_name="right_arm_hand",
+            joint_names=[FRANKA_ARM_JOINTS],
+        )
+        right_hand = mdp.JointPositionActionCfg(
+            asset_name="right_arm_hand",
+            joint_names=[RIGHT_HAND_JOINTS],
+        )
+
+    actions: ActionsCfg = ActionsCfg()
 
     # Observations
     @configclass
