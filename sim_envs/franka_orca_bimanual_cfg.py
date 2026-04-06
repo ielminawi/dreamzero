@@ -79,7 +79,7 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             fix_base=True,
             merge_fixed_joints=False,
             joint_drive=sim_utils.UrdfFileCfg.JointDriveCfg(
-                gains=sim_utils.UrdfFileCfg.JointDriveCfg.GainsCfg(stiffness=0.0, damping=0.0),
+                gains=sim_utils.UrdfFileCfg.JointDriveCfg.PDGainsCfg(stiffness=0.0, damping=0.0),
             ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
@@ -122,7 +122,7 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             fix_base=True,
             merge_fixed_joints=False,
             joint_drive=sim_utils.UrdfFileCfg.JointDriveCfg(
-                gains=sim_utils.UrdfFileCfg.JointDriveCfg.GainsCfg(stiffness=0.0, damping=0.0),
+                gains=sim_utils.UrdfFileCfg.JointDriveCfg.PDGainsCfg(stiffness=0.0, damping=0.0),
             ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
