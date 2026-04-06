@@ -4,6 +4,7 @@ FROM nvcr.io/nvidia/isaac-sim:${ISAAC_SIM_VERSION}
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
+ENV TERM=xterm
 
 # Install git (not included in Isaac Sim base image)
 RUN apt-get update && apt-get install -y --no-install-recommends git && \
