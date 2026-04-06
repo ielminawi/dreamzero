@@ -209,8 +209,8 @@ States:
 
   # Step 5a: HDF5 → LeRobot format
   python scripts/data/convert_h5_to_lerobot.py \
-      --input-dir ./data/raw_h5 \
-      --output-dir ./data/franka_orca_lerobot \
+      --input-dir ../data/raw_h5 \
+      --output-dir ../data/franka_orca_lerobot \
       --fps 50 \
       --task "bimanual manipulation" \
       --target-resolution 640x480
