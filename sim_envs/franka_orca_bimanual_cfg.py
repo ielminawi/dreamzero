@@ -42,8 +42,8 @@ RIGHT_URDF = os.path.join(_ASSETS_DIR, "franka_orca_right.urdf")
 # Joint name expressions for actuator config
 FRANKA_ARM_JOINTS = "panda_joint[1-7]"
 # All 17 hand joints (wrist + 4 fingers x {abd, mcp, pip} + thumb dip)
-LEFT_HAND_JOINTS = "left_*"
-RIGHT_HAND_JOINTS = "right_*"
+LEFT_HAND_JOINTS = "left_.*"
+RIGHT_HAND_JOINTS = "right_.*"
 
 
 @configclass
