@@ -13,7 +13,7 @@
 #     git clone https://huggingface.co/GEAR-Dreams/DreamZero-AgiBot ./checkpoints/DreamZero-AgiBot
 
 export HYDRA_FULL_ERROR=1
-export ATTENTION_BACKEND=torch
+export ATTENTION_BACKEND=${ATTENTION_BACKEND:-torch}
 
 # ============ CHANGE THESE VARIABLES ============
 # Dataset path (LeRobot format with GEAR metadata)
@@ -53,7 +53,7 @@ if [ ! -d "$FRANKA_ORCA_DATA_ROOT" ]; then
 fi
 
 torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment.py \
-    report_to=none \
+    report_to=${REPORT_TO:-none} \
     data=dreamzero/franka_orca_relative \
     wandb_project=dreamzero \
     train_architecture=lora \

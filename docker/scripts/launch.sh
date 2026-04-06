@@ -2,9 +2,10 @@
 # Launch DreamZero + Isaac Sim pipeline
 #
 # Usage:
-#   bash docker/scripts/launch.sh                    # Start both services
+#   bash docker/scripts/launch.sh                    # Start inference + sim services
 #   bash docker/scripts/launch.sh --build            # Rebuild and start
 #   bash docker/scripts/launch.sh --inference-only   # Start only inference server
+#   bash docker/scripts/launch.sh --train            # Start training container
 #   bash docker/scripts/launch.sh --down             # Stop all services
 #
 # Remote viewing (from your local machine):
@@ -28,6 +29,9 @@ case "${1:-}" in
         ;;
     --inference-only)
         SERVICES="dreamzero-inference"
+        ;;
+    --train)
+        SERVICES="dreamzero-training"
         ;;
     --down)
         docker compose down
@@ -54,9 +58,11 @@ ARCH=$(uname -m)
 if [ "$ARCH" = "aarch64" ]; then
     echo "Detected arm64 (GH200/Grace Hopper). Using arm64 container images."
     export BASE_IMAGE="nvcr.io/nvidia/pytorch:24.12-py3-igpu"
+    export TRAINING_BASE_IMAGE="nvcr.io/nvidia/pytorch:24.12-py3-igpu"
 else
     echo "Detected x86_64. Using standard container images."
     export BASE_IMAGE="nvcr.io/nvidia/pytorch:24.12-py3"
+    export TRAINING_BASE_IMAGE="nvcr.io/nvidia/pytorch:24.12-py3"
 fi
 
 echo "Starting DreamZero + Isaac Sim pipeline..."

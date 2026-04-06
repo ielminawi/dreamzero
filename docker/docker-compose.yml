@@ -81,6 +81,37 @@ services:
     networks:
       - dreamzero-net
 
+  dreamzero-training:
+    build:
+      context: ..
+      dockerfile: docker/dreamzero-training/Dockerfile
+      args:
+        BASE_IMAGE: ${TRAINING_BASE_IMAGE:-nvcr.io/nvidia/pytorch:24.12-py3}
+    container_name: dreamzero-training
+    runtime: nvidia
+    ipc: host
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - FRANKA_ORCA_DATA_ROOT=/data
+      - OUTPUT_DIR=/output
+      - WAN_CKPT_DIR=/checkpoints/Wan2.1-I2V-14B-480P
+      - TOKENIZER_DIR=/checkpoints/umt5-xxl
+      - PRETRAINED_PATH=/checkpoints/DreamZero-AgiBot
+      - HF_TOKEN=${HF_TOKEN:-}
+      - WANDB_API_KEY=${WANDB_API_KEY:-}
+      - NUM_GPUS=${NUM_GPUS:-}
+      - NCCL_DEBUG=WARN
+    volumes:
+      - ${HOST_DATA_DIR:-../../data}:/data:ro
+      - ${HOST_CHECKPOINT_DIR:-../../checkpoints}:/checkpoints
+      - ${HOST_OUTPUT_DIR:-../../output}/training:/output
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+
 networks:
   dreamzero-net:
     driver: bridge
