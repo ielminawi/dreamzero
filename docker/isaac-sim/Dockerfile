@@ -29,10 +29,7 @@ RUN /opt/IsaacLab/isaaclab.sh -p -m pip install --no-cache-dir \
 
 WORKDIR /app
 
-# Copy sim environment, eval code, configs, and URDF assets (including meshes)
-COPY sim_envs/ /app/sim_envs/
-COPY eval_utils/ /app/eval_utils/
-COPY configs/ /app/configs/
+# sim_envs/, eval_utils/, configs/ are mounted as volumes at runtime
 
 # Enable Omniverse Streaming for remote visualization
 ENV LIVESTREAM_ENABLED=true

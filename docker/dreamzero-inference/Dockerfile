@@ -17,12 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy requirements first for caching
+# Copy only what's needed to install the package (not data/checkpoints/configs)
 COPY pyproject.toml /app/
 COPY groot/ /app/groot/
-COPY eval_utils/ /app/eval_utils/
-COPY socket_test_optimized_AR.py /app/
-COPY configs/ /app/configs/
 
 # Install DreamZero
 RUN pip install --no-cache-dir -e . --extra-index-url https://download.pytorch.org/whl/cu129

@@ -13,6 +13,9 @@ services:
     volumes:
       - ${HOST_CHECKPOINT_DIR:-../checkpoints}:/checkpoints:ro
       - ${HOST_OUTPUT_DIR:-../output}/inference:/output
+      - ../socket_test_optimized_AR.py:/app/socket_test_optimized_AR.py:ro
+      - ../eval_utils:/app/eval_utils:ro
+      - ../configs:/app/configs:ro
     ports:
       - "${DREAMZERO_PORT:-8000}:8000"
     command: >
@@ -51,8 +54,9 @@ services:
       - LIVESTREAM_ENABLED=true
     volumes:
       - ${HOST_OUTPUT_DIR:-../output}/sim:/output
-      - ../sim_envs:/app/sim_envs
-      - ../configs:/app/configs
+      - ../sim_envs:/app/sim_envs:ro
+      - ../eval_utils:/app/eval_utils:ro
+      - ../configs:/app/configs:ro
     ports:
       - "${LIVESTREAM_PORT:-8211}:8211"        # Omniverse Streaming signaling
       - "${LIVESTREAM_DATA_PORT:-49100}:49100"  # Omniverse Streaming data
