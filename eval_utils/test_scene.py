@@ -40,13 +40,90 @@ for ext_name in ["isaacsim.asset.importer.urdf", "omni.importer.urdf", "omni.isa
 
 import sim_envs  # registers FrankaOrcaBimanual-v0
 
-from sim_envs.franka_orca_bimanual_cfg import FrankaOrcaBimanualEnvCfg
+from sim_envs.franka_orca_bimanual_cfg import (
+    FrankaOrcaBimanualEnvCfg,
+    FrankaOrcaSceneCfg,
+)
 from sim_envs.franka_orca_bimanual_env import FrankaOrcaBimanualEnv
+
+import isaaclab.sim as sim_utils
+from isaaclab.sensors import CameraCfg
+from isaaclab.utils import configclass
+
+
+# ---------------------------------------------------------------------------
+# Debug overview cameras (only used with --save-images)
+# ---------------------------------------------------------------------------
+
+def _look_at_quat(eye, target, up=(0.0, 0.0, 1.0)):
+    """Compute (w, x, y, z) quaternion for an OpenGL camera at *eye* looking at *target*."""
+    eye, target, up = np.asarray(eye, np.float64), np.asarray(target, np.float64), np.asarray(up, np.float64)
+    fwd = target - eye
+    fwd /= np.linalg.norm(fwd)
+    z = -fwd  # camera looks along -Z
+    if abs(np.dot(up, z)) > 0.999:
+        up = np.array([-1.0, 0.0, 0.0])  # fallback for top-down
+    x = np.cross(up, z);  x /= np.linalg.norm(x)
+    y = np.cross(z, x)
+    R = np.column_stack([x, y, z])  # rotation matrix
+    tr = R[0, 0] + R[1, 1] + R[2, 2]
+    if tr > 0:
+        s = 2.0 * np.sqrt(tr + 1.0)
+        w, qx, qy, qz = 0.25 * s, (R[2, 1] - R[1, 2]) / s, (R[0, 2] - R[2, 0]) / s, (R[1, 0] - R[0, 1]) / s
+    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+        s = 2.0 * np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2])
+        w, qx, qy, qz = (R[2, 1] - R[1, 2]) / s, 0.25 * s, (R[0, 1] + R[1, 0]) / s, (R[0, 2] + R[2, 0]) / s
+    elif R[1, 1] > R[2, 2]:
+        s = 2.0 * np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2])
+        w, qx, qy, qz = (R[0, 2] - R[2, 0]) / s, (R[0, 1] + R[1, 0]) / s, 0.25 * s, (R[1, 2] + R[2, 1]) / s
+    else:
+        s = 2.0 * np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1])
+        w, qx, qy, qz = (R[1, 0] - R[0, 1]) / s, (R[0, 2] + R[2, 0]) / s, (R[1, 2] + R[2, 1]) / s, 0.25 * s
+    return (float(w), float(qx), float(qy), float(qz))
+
+
+# (name, eye, target)
+_DEBUG_VIEWS = [
+    ("top_down",    (0.3, 0.0, 3.0),  (0.3, 0.0, 0.0)),
+    ("front",       (2.0, 0.0, 1.0),  (0.2, 0.0, 0.3)),
+    ("left_side",   (0.3, -2.0, 1.0), (0.3, 0.0, 0.3)),
+    ("perspective", (1.5, -1.2, 1.5),  (0.3, 0.0, 0.2)),
+]
+
+def _make_debug_cam_cfg(prim_name, eye, target):
+    return CameraCfg(
+        prim_path=f"/World/DebugCams/{prim_name}",
+        update_period=0.02,
+        height=720,
+        width=1280,
+        spawn=sim_utils.PinholeCameraCfg(focal_length=15.0, horizontal_aperture=36.0),
+        offset=CameraCfg.OffsetCfg(pos=eye, rot=_look_at_quat(eye, target), convention="world"),
+    )
+
+@configclass
+class DebugSceneCfg(FrankaOrcaSceneCfg):
+    """Base scene + debug overview cameras."""
+    top_cam: CameraCfg = _make_debug_cam_cfg("TopDown", *_DEBUG_VIEWS[0][1:])
+    front_cam: CameraCfg = _make_debug_cam_cfg("Front", *_DEBUG_VIEWS[1][1:])
+    left_cam: CameraCfg = _make_debug_cam_cfg("LeftSide", *_DEBUG_VIEWS[2][1:])
+    perspective_cam: CameraCfg = _make_debug_cam_cfg("Perspective", *_DEBUG_VIEWS[3][1:])
+
+@configclass
+class DebugEnvCfg(FrankaOrcaBimanualEnvCfg):
+    """Env config with debug cameras added to the scene."""
+    scene: DebugSceneCfg = DebugSceneCfg(num_envs=1, env_spacing=2.5)
+
+
+_DEBUG_CAM_NAMES = ["top_cam", "front_cam", "left_cam", "perspective_cam"]
 
 
 def main():
     print("\n=== Creating FrankaOrcaBimanual-v0 environment ===")
-    cfg = FrankaOrcaBimanualEnvCfg()
+    if args.save_images:
+        print("  (using DebugEnvCfg with overview cameras)")
+        cfg = DebugEnvCfg()
+    else:
+        cfg = FrankaOrcaBimanualEnvCfg()
     env = FrankaOrcaBimanualEnv(cfg)
 
     # Double reset (first loads assets, second stabilises materials)
@@ -81,6 +158,14 @@ def main():
         oakd_resized = cv2.resize(oakd, (640, 480))
         composite = np.concatenate([aria_resized, oakd_resized], axis=1)
         cv2.imwrite(str(out_dir / "composite.png"), cv2.cvtColor(composite, cv2.COLOR_RGB2BGR))
+
+        # Debug overview cameras
+        print("\nSaving debug overview images...")
+        for cam_name, (view_name, _, _) in zip(_DEBUG_CAM_NAMES, _DEBUG_VIEWS):
+            rgb = env.scene[cam_name].data.output["rgb"][0, ..., :3].cpu().numpy().astype(np.uint8)
+            fname = f"debug_{view_name}.png"
+            cv2.imwrite(str(out_dir / fname), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+            print(f"  {fname:<30s}: {rgb.shape}")
 
         print(f"\n=== Saved camera renders to {out_dir} ===")
         print(f"  aria_rgb_cam.png     : {aria.shape}")
