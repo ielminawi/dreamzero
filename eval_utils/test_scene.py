@@ -17,12 +17,15 @@ from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="Test bimanual Franka+Orca scene loading")
 parser.add_argument("--num-steps", type=int, default=500, help="Number of sim steps to run (0 = run forever)")
+parser.add_argument("--save-images", action="store_true", help="Save camera renders to /output after reset")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+args.enable_cameras = True
 app_launcher = AppLauncher(args)
 simulation_app = app_launcher.app
 
 # Now safe to import Isaac/sim_envs
+import numpy as np
 import torch
 import sys
 sys.path.insert(0, "/app")
@@ -51,6 +54,31 @@ def main():
     obs, _ = env.reset()
     print("Reset 2/2 (stabilising)...")
     obs, _ = env.reset()
+
+    # Save camera renders if requested
+    if args.save_images:
+        import cv2
+        from pathlib import Path
+        out_dir = Path("/output")
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        policy = obs.get("policy", obs)
+        aria = policy["aria_rgb_cam"][0].cpu().numpy().astype(np.uint8)
+        oakd = policy["oakd_front_view"][0].cpu().numpy().astype(np.uint8)
+
+        cv2.imwrite(str(out_dir / "aria_rgb_cam.png"), cv2.cvtColor(aria, cv2.COLOR_RGB2BGR))
+        cv2.imwrite(str(out_dir / "oakd_front_view.png"), cv2.cvtColor(oakd, cv2.COLOR_RGB2BGR))
+
+        # Side-by-side composite
+        aria_resized = cv2.resize(aria, (640, 480))
+        oakd_resized = cv2.resize(oakd, (640, 480))
+        composite = np.concatenate([aria_resized, oakd_resized], axis=1)
+        cv2.imwrite(str(out_dir / "composite.png"), cv2.cvtColor(composite, cv2.COLOR_RGB2BGR))
+
+        print(f"\n=== Saved camera renders to {out_dir} ===")
+        print(f"  aria_rgb_cam.png     : {aria.shape}")
+        print(f"  oakd_front_view.png  : {oakd.shape}")
+        print(f"  composite.png        : {composite.shape}")
 
     # Print observation summary
     print("\n=== Observation summary ===")
