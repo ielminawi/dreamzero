@@ -17,13 +17,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy project files needed for training
+# Copy only what's needed for pip install (source code is mounted at runtime)
 COPY pyproject.toml /app/
 COPY groot/ /app/groot/
-COPY configs/ /app/configs/
-COPY scripts/ /app/scripts/
 
-# Install DreamZero
+# Install Python dependencies
 RUN pip install --no-cache-dir -e . --extra-index-url https://download.pytorch.org/whl/cu129
 
 # Install flash-attn (succeeds on H100 x86, fails on GH200 arm64)
@@ -34,8 +32,8 @@ RUN MAX_JOBS=8 pip install --no-cache-dir --no-build-isolation flash-attn || \
 RUN pip install --no-cache-dir --no-build-isolation transformer_engine[pytorch] || \
     echo "transformer_engine not available, skipping"
 
-# Copy and set entrypoint
-COPY docker/dreamzero-training/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+# Entrypoint (small, rarely changes — bake it in)
+COPY docker/dreamzero-training/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/entrypoint.sh"]
