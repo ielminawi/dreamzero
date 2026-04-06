@@ -26,6 +26,15 @@ simulation_app = app_launcher.app
 import torch
 import sys
 sys.path.insert(0, "/app")
+
+# Enable URDF importer extension (not loaded by default in headless mode)
+import omni.kit.app
+ext_manager = omni.kit.app.get_app().get_extension_manager()
+for ext_name in ["isaacsim.asset.importer.urdf", "omni.importer.urdf", "omni.isaac.urdf"]:
+    if ext_manager.set_extension_enabled_immediate(ext_name, True):
+        print(f"[INFO] Enabled extension: {ext_name}")
+        break
+
 import sim_envs  # registers FrankaOrcaBimanual-v0
 
 from sim_envs.franka_orca_bimanual_cfg import FrankaOrcaBimanualEnvCfg
