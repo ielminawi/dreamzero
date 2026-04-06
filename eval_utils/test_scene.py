@@ -59,6 +59,13 @@ def main():
     if args.save_images:
         import cv2
         from pathlib import Path
+
+        # Warm up renderer — first few frames can be incomplete
+        print("Warming up renderer (10 steps)...")
+        zero_action = torch.zeros(1, 48, device=env.device)
+        for _ in range(10):
+            obs, _ = env.step(zero_action)
+
         out_dir = Path("/output")
         out_dir.mkdir(parents=True, exist_ok=True)
 
