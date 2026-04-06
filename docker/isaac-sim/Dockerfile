@@ -5,6 +5,10 @@ FROM nvcr.io/nvidia/isaac-sim:${ISAAC_SIM_VERSION}
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
+# Install git (not included in Isaac Sim base image)
+RUN apt-get update && apt-get install -y --no-install-recommends git && \
+    rm -rf /var/lib/apt/lists/*
+
 # Install IsaacLab
 WORKDIR /opt
 RUN git clone https://github.com/isaac-sim/IsaacLab.git && \

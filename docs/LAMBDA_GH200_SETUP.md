@@ -62,12 +62,14 @@ You need four sets of weights. Create the checkpoints directory and download:
 ```bash
 mkdir -p checkpoints
 
+pip install "huggingface_hub[cli]"
+
 # 1. Wan2.1-I2V-14B-480P backbone (~28GB)
-huggingface-cli download Wan-AI/Wan2.1-I2V-14B-480P \
+hf download Wan-AI/Wan2.1-I2V-14B-480P \
     --local-dir checkpoints/Wan2.1-I2V-14B-480P
 
 # 2. umt5-xxl tokenizer (~5GB)
-huggingface-cli download google/umt5-xxl \
+hf download google/umt5-xxl \
     --local-dir checkpoints/umt5-xxl
 
 # 3. DreamZero-AgiBot base model (~45GB)
