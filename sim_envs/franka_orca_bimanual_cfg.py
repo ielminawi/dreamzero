@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import os
 
+import numpy as np
+
 import isaaclab.sim as sim_utils
 import isaaclab.envs.mdp as mdp
 from isaaclab.actuators import ImplicitActuatorCfg
@@ -30,6 +32,40 @@ from isaaclab.managers import ActionTermCfg, ObservationGroupCfg, ObservationTer
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import CameraCfg
 from isaaclab.utils import configclass
+
+def _look_at_quat(eye, target, up=(0.0, 0.0, 1.0)):
+    """Compute (w, x, y, z) quaternion for an OpenGL camera at *eye* looking at *target*."""
+    eye, target, up = np.asarray(eye, np.float64), np.asarray(target, np.float64), np.asarray(up, np.float64)
+    fwd = target - eye
+    fwd /= np.linalg.norm(fwd)
+    z = -fwd
+    if abs(np.dot(up, z)) > 0.999:
+        up = np.array([-1.0, 0.0, 0.0])
+    x = np.cross(up, z); x /= np.linalg.norm(x)
+    y = np.cross(z, x)
+    R = np.column_stack([x, y, z])
+    tr = R[0, 0] + R[1, 1] + R[2, 2]
+    if tr > 0:
+        s = 2.0 * np.sqrt(tr + 1.0)
+        w, qx, qy, qz = 0.25 * s, (R[2, 1] - R[1, 2]) / s, (R[0, 2] - R[2, 0]) / s, (R[1, 0] - R[0, 1]) / s
+    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+        s = 2.0 * np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2])
+        w, qx, qy, qz = (R[2, 1] - R[1, 2]) / s, 0.25 * s, (R[0, 1] + R[1, 0]) / s, (R[0, 2] + R[2, 0]) / s
+    elif R[1, 1] > R[2, 2]:
+        s = 2.0 * np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2])
+        w, qx, qy, qz = (R[0, 2] - R[2, 0]) / s, (R[0, 1] + R[1, 0]) / s, 0.25 * s, (R[1, 2] + R[2, 1]) / s
+    else:
+        s = 2.0 * np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1])
+        w, qx, qy, qz = (R[1, 0] - R[0, 1]) / s, (R[0, 2] + R[2, 0]) / s, (R[1, 2] + R[2, 1]) / s, 0.25 * s
+    return (float(w), float(qx), float(qy), float(qz))
+
+
+# Camera positions from calibration extrinsics (cam→base).
+# Calibration gives camera pos relative to arm base; Y axis is flipped in calib.
+# Camera Y = 0 (centered between arms), Z ≈ 0.45 from calibration.
+_ARIA_EYE = (-0.25, 0.0, 0.45)
+_OAKD_EYE = (-0.25, 0.0, 0.45)
+_WORKSPACE_TARGET = (0.35, 0.0, 0.15)
 
 # Arm separation from calibration: ~61cm apart on Y-axis
 ARM_SEPARATION_Y = 0.6127
@@ -55,6 +91,27 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
       joints[7:24] = {side}_{wrist, thumb_mcp, ..., pinky_pip} (hand)
     """
 
+    # Dome light for ambient illumination
+    dome_light = AssetBaseCfg(
+        prim_path="/World/DomeLight",
+        spawn=sim_utils.DomeLightCfg(
+            color=(0.9, 0.9, 1.0),
+            intensity=300.0,
+        ),
+    )
+
+    # Distant light for directional illumination and shadows
+    distant_light = AssetBaseCfg(
+        prim_path="/World/DistantLight",
+        spawn=sim_utils.DistantLightCfg(
+            color=(1.0, 1.0, 0.95),
+            intensity=400.0,
+        ),
+        init_state=AssetBaseCfg.InitialStateCfg(
+            rot=(0.866, 0.0, 0.5, 0.0),  # ~60 deg elevation
+        ),
+    )
+
     # Ground plane
     ground = AssetBaseCfg(
         prim_path="/World/ground",
@@ -62,13 +119,14 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
     )
 
     # Table (simple cuboid stand-in; swap for USD mesh once Nucleus is available)
+    # Top surface at z=0.025 so it sits flush on the ground plane
     table = AssetBaseCfg(
         prim_path="/World/Table",
         spawn=sim_utils.CuboidCfg(
             size=(1.2, 0.8, 0.05),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.4, 0.2)),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.4, 0.2), roughness=1.0),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.5, 0.0, 0.0)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.5, 0.0, 0.025)),
     )
 
     # ---- Left Franka + Orca hand (24 DOF) ----
@@ -156,46 +214,44 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
     )
 
     # ---- Camera 1: "aria_rgb_cam" ----
-    # Positioned per left_cam extrinsics from calibration (Hypothesis C).
-    # pos = left_arm_base + [tx, -ty, tz]  (Y component negated)
-    # Quaternion derived from calibration rotation matrix (OpenCV→OpenGL convention).
+    # Position from left_cam calibration extrinsics (cam→base).
+    # pos = left_arm_base + [tx, -ty, tz]  (Y negated: calib Y is flipped vs sim).
+    # Orientation: look-at toward workspace center.
     # Training resolution: 480x640
     aria_rgb_cam = CameraCfg(
-        prim_path="/World/AriaCam",
+        prim_path="/World/Cameras/AriaCam",
         update_period=0.02,  # 50 Hz to match training FPS
         height=480,
         width=640,
         spawn=sim_utils.PinholeCameraCfg(
-            focal_length=24.0,
+            focal_length=15.0,
             horizontal_aperture=20.955,
         ),
         offset=CameraCfg.OffsetCfg(
-            # World pos = left_arm_base (0, -0.306, 0) + (0.204, +0.255, 0.434)
-            pos=(0.204, -0.051, 0.434),
-            rot=(0.660, 0.230, -0.210, -0.683),
-            convention="world",
+            pos=_ARIA_EYE,
+            rot=_look_at_quat(_ARIA_EYE, _WORKSPACE_TARGET),
+            convention="opengl",
         ),
     )
 
     # ---- Camera 2: "oakd_front_view" ----
-    # Positioned per right_cam extrinsics from calibration (Hypothesis C).
-    # pos = right_arm_base + [tx, -ty, tz]  (Y component negated)
-    # Quaternion derived from calibration rotation matrix (OpenCV→OpenGL convention).
+    # Position from right_cam calibration extrinsics (cam→base).
+    # pos = right_arm_base + [tx, -ty, tz]  (Y negated: calib Y is flipped vs sim).
+    # Orientation: look-at toward workspace center.
     # Training resolution: 540x960
     oakd_front_view = CameraCfg(
-        prim_path="/World/OakDCam",
+        prim_path="/World/Cameras/OakDCam",
         update_period=0.02,  # 50 Hz
         height=540,
         width=960,
         spawn=sim_utils.PinholeCameraCfg(
-            focal_length=24.0,
+            focal_length=15.0,
             horizontal_aperture=20.955,
         ),
         offset=CameraCfg.OffsetCfg(
-            # World pos = right_arm_base (0, 0.306, 0) + (0.175, -0.346, 0.469)
-            pos=(0.175, -0.040, 0.469),
-            rot=(0.678, 0.235, -0.175, -0.674),
-            convention="world",
+            pos=_OAKD_EYE,
+            rot=_look_at_quat(_OAKD_EYE, _WORKSPACE_TARGET),
+            convention="opengl",
         ),
     )
 

@@ -97,7 +97,7 @@ def _make_debug_cam_cfg(prim_name, eye, target):
         height=720,
         width=1280,
         spawn=sim_utils.PinholeCameraCfg(focal_length=15.0, horizontal_aperture=36.0),
-        offset=CameraCfg.OffsetCfg(pos=eye, rot=_look_at_quat(eye, target), convention="world"),
+        offset=CameraCfg.OffsetCfg(pos=eye, rot=_look_at_quat(eye, target), convention="opengl"),
     )
 
 @configclass
@@ -129,19 +129,22 @@ def main():
     # Double reset (first loads assets, second stabilises materials)
     print("Reset 1/2 (loading assets)...")
     obs, _ = env.reset()
+    simulation_app.update()
     print("Reset 2/2 (stabilising)...")
     obs, _ = env.reset()
+    simulation_app.update()
 
     # Save camera renders if requested
     if args.save_images:
         import cv2
         from pathlib import Path
 
-        # Warm up renderer — first few frames can be incomplete
-        print("Warming up renderer (10 steps)...")
+        # Warm up renderer — URDF meshes need many frames to fully hydrate
+        print("Warming up renderer (50 steps)...")
         zero_action = torch.zeros(1, 48, device=env.device)
-        for _ in range(10):
+        for _ in range(50):
             obs, _ = env.step(zero_action)
+            simulation_app.update()
 
         out_dir = Path("/output")
         out_dir.mkdir(parents=True, exist_ok=True)
