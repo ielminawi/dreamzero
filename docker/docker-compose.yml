@@ -10,12 +10,16 @@ services:
       - ATTENTION_BACKEND=${ATTENTION_BACKEND:-TE}
       - ENABLE_DIT_CACHE=${ENABLE_DIT_CACHE:-true}
       - NCCL_DEBUG=WARN
+      - WAN_CKPT_DIR=${WAN_CKPT_DIR:-/checkpoints/Wan2.1-I2V-14B-480P}
+      - TOKENIZER_DIR=${TOKENIZER_DIR:-/checkpoints/umt5-xxl}
+      - HF_HOME=/checkpoints/.cache/huggingface
+      - HF_HUB_OFFLINE=1
     volumes:
-      - /home/ubuntu/Dreamzero/checkpoints:/checkpoints:ro
-      - /home/ubuntu/Dreamzero/output/inference:/output
-      - /home/ubuntu/Dreamzero/repo/socket_test_optimized_AR.py:/app/socket_test_optimized_AR.py:ro
-      - /home/ubuntu/Dreamzero/repo/eval_utils:/app/eval_utils:ro
-      - /home/ubuntu/Dreamzero/repo/configs:/app/configs:ro
+      - ${CHECKPOINTS_DIR}:/checkpoints
+      - ${REPO_DIR}/output/inference:/output
+      - ${REPO_DIR}/socket_test_optimized_AR.py:/app/socket_test_optimized_AR.py:ro
+      - ${REPO_DIR}/eval_utils:/app/eval_utils:ro
+      - ${REPO_DIR}/configs:/app/configs:ro
     ports:
       - "${DREAMZERO_PORT:-8000}:8000"
     command: >
@@ -23,15 +27,10 @@ services:
       --standalone
       socket_test_optimized_AR.py
       --port 8000
-      --model-path ${MODEL_PATH:-/checkpoints/dreamzero_franka_orca_lora}
+      --model-path ${MODEL_PATH:-/checkpoints}
       --enable-dit-cache
       --embodiment franka_orca_bimanual
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              capabilities: [gpu]
+    ipc: host
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 30s
@@ -54,10 +53,10 @@ services:
       - ACCEPT_EULA=Y
       - LIVESTREAM_ENABLED=true
     volumes:
-      - /home/ubuntu/Dreamzero/output/sim:/output
-      - /home/ubuntu/Dreamzero/repo/sim_envs:/app/sim_envs:ro
-      - /home/ubuntu/Dreamzero/repo/eval_utils:/app/eval_utils:ro
-      - /home/ubuntu/Dreamzero/repo/configs:/app/configs:ro
+      - ${REPO_DIR}/output/sim:/output
+      - ${REPO_DIR}/sim_envs:/app/sim_envs:ro
+      - ${REPO_DIR}/eval_utils:/app/eval_utils:ro
+      - ${REPO_DIR}/configs:/app/configs:ro
       - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
     ports:
       - "${LIVESTREAM_PORT:-8211}:8211"
@@ -75,12 +74,6 @@ services:
     depends_on:
       dreamzero-inference:
         condition: service_healthy
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              capabilities: [gpu, graphics, display, compute, utility]
     networks:
       - dreamzero-net
 
@@ -106,20 +99,14 @@ services:
       - NCCL_DEBUG=WARN
     volumes:
       # Source code + entrypoint (mounted so edits don't need rebuild)
-      - /home/ubuntu/Dreamzero/repo/groot:/app/groot:ro
-      - /home/ubuntu/Dreamzero/repo/configs:/app/configs:ro
-      - /home/ubuntu/Dreamzero/repo/scripts:/app/scripts:ro
-      - /home/ubuntu/Dreamzero/repo/docker/dreamzero-training/entrypoint.sh:/entrypoint.sh
+      - ${REPO_DIR}/groot:/app/groot:ro
+      - ${REPO_DIR}/configs:/app/configs:ro
+      - ${REPO_DIR}/scripts:/app/scripts:ro
+      - ${REPO_DIR}/docker/dreamzero-training/entrypoint.sh:/entrypoint.sh
       # Data, checkpoints, output
-      - /home/ubuntu/Dreamzero/data:/data:ro
-      - /home/ubuntu/Dreamzero/checkpoints:/checkpoints
-      - /home/ubuntu/Dreamzero/output:/output
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              capabilities: [gpu]
+      - ${REPO_DIR}/data:/data:ro
+      - ${REPO_DIR}/checkpoints:/checkpoints
+      - ${REPO_DIR}/output:/output
 
 networks:
   dreamzero-net:

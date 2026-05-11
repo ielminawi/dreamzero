@@ -372,6 +372,13 @@ class GrootSimPolicy(BaseGrootSimPolicy):
                 t for t in eval_transform_cfg.transforms if t._target_ not in skipped_transforms
             ]
 
+        import os
+        tokenizer_dir = os.environ.get("TOKENIZER_DIR")
+        if tokenizer_dir is not None:
+            for t_cfg in train_cfg.transforms[self.embodiment_tag.value].get("transforms", []):
+                if hasattr(t_cfg, "tokenizer_path"):
+                    t_cfg.tokenizer_path = tokenizer_dir
+
         eval_transform = instantiate(train_cfg.transforms[self.embodiment_tag.value])
         assert isinstance(eval_transform, ComposedModalityTransform), f"{eval_transform=}"
         eval_transform.set_metadata(metadata)

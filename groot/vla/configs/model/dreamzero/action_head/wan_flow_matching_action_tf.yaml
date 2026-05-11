@@ -7,9 +7,9 @@ repa_coeff: 1.0
 load_pretrained_det_decode_layer_path: null
 expand_batch: null
 dit_version: null
-text_encoder_pretrained_path: null
-image_encoder_pretrained_path: null
-vae_pretrained_path: null
+text_encoder_pretrained_path: ${oc.env:TEXT_ENCODER_PRETRAINED_PATH,null}
+image_encoder_pretrained_path: ${oc.env:IMAGE_ENCODER_PRETRAINED_PATH,null}
+vae_pretrained_path: ${oc.env:VAE_PRETRAINED_PATH,null}
 train_architecture: "lora"
 num_frame_per_block: 1
 num_action_per_block: 32
