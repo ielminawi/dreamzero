@@ -7,6 +7,7 @@ Adapted from https://github.com/robo-arena/roboarena/
 
 import asyncio
 import dataclasses
+import http
 import logging
 import traceback
 
@@ -71,6 +72,11 @@ class WebsocketPolicyServer:
     def serve_forever(self) -> None:
         asyncio.run(self.run())
 
+    async def _health_check(self, connection, request):
+        if request.path == "/healthz":
+            return connection.respond(http.HTTPStatus.OK, "OK\n")
+        return None
+
     async def run(self):
         async with websockets.asyncio.server.serve(
             self._handler,
@@ -78,6 +84,7 @@ class WebsocketPolicyServer:
             self._port,
             compression=None,
             max_size=None,
+            process_request=self._health_check,
         ) as server:
             await server.serve_forever()
 

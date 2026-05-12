@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git-lfs \
     ffmpeg \
     libgl1 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -42,10 +43,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # ---- Code layer (only invalidated when groot/ source changes) ----
 COPY groot/ /app/groot/
-
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD curl -f http://localhost:${DREAMZERO_PORT:-8000}/healthz || exit 1
 
 EXPOSE ${DREAMZERO_PORT:-8000}
 
