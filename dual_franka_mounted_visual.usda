@@ -1,0 +1,950 @@
+#usda 1.0
+(
+    customLayerData = {
+        dictionary physicsSettings = {
+            int "/persistent/simulation/minFrameRate" = 60
+        }
+    }
+    endTimeCode = 1000000
+    metersPerUnit = 1
+    startTimeCode = 0
+    timeCodesPerSecond = 60
+    upAxis = "Z"
+)
+
+over "Render" (
+    hide_in_stage_window = true
+)
+{
+}
+
+def PhysicsScene "physicsScene" (
+    prepend apiSchemas = ["PhysxSceneAPI"]
+)
+{
+    vector3f physics:gravityDirection = (0, 0, -1)
+    float physics:gravityMagnitude = 9.81
+    uniform token physxScene:broadphaseType = "MBP"
+    bool physxScene:enableCCD = 1
+    bool physxScene:enableGPUDynamics = 0
+    bool physxScene:enableStabilization = 1
+    uniform token physxScene:solverType = "TGS"
+    uint physxScene:timeStepsPerSecond = 60
+}
+
+def "World"
+{
+    def "Physics_Materials"
+    {
+        def Material "physics_material" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 1
+            float physics:restitution = 0
+            float physics:staticFriction = 0.2
+        }
+
+        def Material "physics_material_1" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 1
+            float physics:restitution = 0
+            float physics:staticFriction = 0.2
+        }
+
+        def Material "physics_material_2" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 1
+            float physics:restitution = 0
+            float physics:staticFriction = 0.2
+        }
+
+        def Material "physics_material_3" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 1
+            float physics:restitution = 0
+            float physics:staticFriction = 0.2
+        }
+
+        def Material "physics_material_4" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 1
+            float physics:restitution = 0
+            float physics:staticFriction = 0.2
+        }
+    }
+
+    def "Table"
+    {
+        def Cube "Top" (
+            prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI"]
+        )
+        {
+            float3[] extent = [(-0.8, -0.4, -0.02), (0.8, 0.4, 0.02)]
+            rel material:binding = </World/Looks/visual_material> (
+                bindMaterialAs = "strongerThanDescendants"
+            )
+            rel material:binding:physics = </World/Physics_Materials/physics_material> (
+                bindMaterialAs = "strongerThanDescendants"
+            )
+            bool physics:collisionEnabled = 1
+            float physxCollision:contactOffset = 0.1
+            float physxCollision:minTorsionalPatchRadius = 0.8
+            float physxCollision:restOffset = 0
+            float physxCollision:torsionalPatchRadius = 1
+            double size = 1
+            quatd xformOp:orient = (1, 0, 0, 0)
+            double3 xformOp:scale = (1.600000023841858, 0.800000011920929, 0.03999999910593033)
+            double3 xformOp:translate = (0, 0, 0.7400000095367432)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Cube "Leg_0" (
+            prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI"]
+        )
+        {
+            float3[] extent = [(-0.02, -0.02, -0.36), (0.02, 0.02, 0.36)]
+            rel material:binding = </World/Looks/visual_material_1> (
+                bindMaterialAs = "strongerThanDescendants"
+            )
+            rel material:binding:physics = </World/Physics_Materials/physics_material_1> (
+                bindMaterialAs = "strongerThanDescendants"
+            )
+            bool physics:collisionEnabled = 1
+            float physxCollision:contactOffset = 0.1
+            float physxCollision:minTorsionalPatchRadius = 0.8
+            float physxCollision:restOffset = 0
+            float physxCollision:torsionalPatchRadius = 1
+            double size = 1
+            quatd xformOp:orient = (1, 0, 0, 0)
+            double3 xformOp:scale = (0.03999999910593033, 0.03999999910593033, 0.7200000286102295)
+            double3 xformOp:translate = (0.7799999713897705, 0.3799999952316284, 0.36000001430511475)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Cube "Leg_1" (
+            prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI"]
+        )
+        {
+            float3[] extent = [(-0.02, -0.02, -0.36), (0.02, 0.02, 0.36)]
+            rel material:binding = </World/Looks/visual_material_2> (
+                bindMaterialAs = "strongerThanDescendants"
+            )
+            rel material:binding:physics = </World/Physics_Materials/physics_material_2> (
+                bindMaterialAs = "strongerThanDescendants"
+            )
+            bool physics:collisionEnabled = 1
+            float physxCollision:contactOffset = 0.1
+            float physxCollision:minTorsionalPatchRadius = 0.8
+            float physxCollision:restOffset = 0
+            float physxCollision:torsionalPatchRadius = 1
+            double size = 1
+            quatd xformOp:orient = (1, 0, 0, 0)
+            double3 xformOp:scale = (0.03999999910593033, 0.03999999910593033, 0.7200000286102295)
+            double3 xformOp:translate = (0.7799999713897705, -0.3799999952316284, 0.36000001430511475)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Cube "Leg_2" (
+            prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI"]
+        )
+        {
+            float3[] extent = [(-0.02, -0.02, -0.36), (0.02, 0.02, 0.36)]
+            rel material:binding = </World/Looks/visual_material_3> (
+                bindMaterialAs = "strongerThanDescendants"
+            )
+            rel material:binding:physics = </World/Physics_Materials/physics_material_3> (
+                bindMaterialAs = "strongerThanDescendants"
+            )
+            bool physics:collisionEnabled = 1
+            float physxCollision:contactOffset = 0.1
+            float physxCollision:minTorsionalPatchRadius = 0.8
+            float physxCollision:restOffset = 0
+            float physxCollision:torsionalPatchRadius = 1
+            double size = 1
+            quatd xformOp:orient = (1, 0, 0, 0)
+            double3 xformOp:scale = (0.03999999910593033, 0.03999999910593033, 0.7200000286102295)
+            double3 xformOp:translate = (-0.7799999713897705, 0.3799999952316284, 0.36000001430511475)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Cube "Leg_3" (
+            prepend apiSchemas = ["MaterialBindingAPI", "PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI"]
+        )
+        {
+            float3[] extent = [(-0.02, -0.02, -0.36), (0.02, 0.02, 0.36)]
+            rel material:binding = </World/Looks/visual_material_4> (
+                bindMaterialAs = "strongerThanDescendants"
+            )
+            rel material:binding:physics = </World/Physics_Materials/physics_material_4> (
+                bindMaterialAs = "strongerThanDescendants"
+            )
+            bool physics:collisionEnabled = 1
+            float physxCollision:contactOffset = 0.1
+            float physxCollision:minTorsionalPatchRadius = 0.8
+            float physxCollision:restOffset = 0
+            float physxCollision:torsionalPatchRadius = 1
+            double size = 1
+            quatd xformOp:orient = (1, 0, 0, 0)
+            double3 xformOp:scale = (0.03999999910593033, 0.03999999910593033, 0.7200000286102295)
+            double3 xformOp:translate = (-0.7799999713897705, -0.3799999952316284, 0.36000001430511475)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+    }
+
+    def "Looks"
+    {
+        def Material "visual_material"
+        {
+            token outputs:surface.connect = </World/Looks/visual_material/shader.outputs:surface>
+
+            def Shader "shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                float3 inputs:diffuseColor = (0.55, 0.35, 0.15)
+                token outputs:surface
+            }
+        }
+
+        def Material "visual_material_1"
+        {
+            token outputs:surface.connect = </World/Looks/visual_material_1/shader.outputs:surface>
+
+            def Shader "shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                float3 inputs:diffuseColor = (0.55, 0.35, 0.15)
+                token outputs:surface
+            }
+        }
+
+        def Material "visual_material_2"
+        {
+            token outputs:surface.connect = </World/Looks/visual_material_2/shader.outputs:surface>
+
+            def Shader "shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                float3 inputs:diffuseColor = (0.55, 0.35, 0.15)
+                token outputs:surface
+            }
+        }
+
+        def Material "visual_material_3"
+        {
+            token outputs:surface.connect = </World/Looks/visual_material_3/shader.outputs:surface>
+
+            def Shader "shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                float3 inputs:diffuseColor = (0.55, 0.35, 0.15)
+                token outputs:surface
+            }
+        }
+
+        def Material "visual_material_4"
+        {
+            token outputs:surface.connect = </World/Looks/visual_material_4/shader.outputs:surface>
+
+            def Shader "shader"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                float3 inputs:diffuseColor = (0.55, 0.35, 0.15)
+                token outputs:surface
+            }
+        }
+    }
+
+    def Xform "Franka_Left" (
+        prepend references = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Robots/Franka/franka_alt_fingers.usd@
+    )
+    {
+        quatd xformOp:orient = (0.7071067690849304, 0, 0, 0.7071067690849304)
+        double3 xformOp:translate = (-0.3499999940395355, -0.20000000298023224, 0.6349999904632568)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        over "panda_hand"
+        {
+            vector3f physics:angularVelocity = (0, 0, 0)
+            vector3f physics:velocity = (0, 0, 0)
+            token visibility = "invisible"
+            quatf xformOp:orient = (6.123234e-17, 0.9238795, 0.38268346, -4.000195e-17)
+            float3 xformOp:translate = (0.08799997, -6.2616756e-8, 0.9259999)
+
+            over "geometry"
+            {
+                over "panda_hand"
+                {
+                    token visibility = "invisible"
+                }
+            }
+        }
+
+        over "panda_leftfinger"
+        {
+            vector3f physics:angularVelocity = (0, 0, 0)
+            vector3f physics:velocity = (0.0000024894205, 0.0000024894211, 3.048661e-22)
+            token visibility = "invisible"
+            quatf xformOp:orient = (6.123234e-17, 0.9238795, 0.38268346, -4.000195e-17)
+            float3 xformOp:translate = (0.11628384, -0.028283928, 0.86759996)
+        }
+
+        over "panda_rightfinger"
+        {
+            vector3f physics:angularVelocity = (0, 0, 0)
+            vector3f physics:velocity = (0.00001943484, 0.00001943484, 2.380419e-21)
+            token visibility = "invisible"
+            quatf xformOp:orient = (6.123234e-17, 0.9238795, 0.38268346, -4.000195e-17)
+            float3 xformOp:translate = (0.08799997, -6.2616756e-8, 0.86759996)
+        }
+
+        over "panda_link0"
+        {
+            vector3f physics:angularVelocity = (19.01078, -6.7727294, 43.393322)
+            vector3f physics:velocity = (0.053953927, 0.092976585, -0.022807838)
+            quatf xformOp:orient = (-0.20543572, 0.00010205679, -0.000069575486, 0.9786706)
+            float3 xformOp:translate = (-0.017028823, -0.0007940227, 0.12501389)
+        }
+
+        over "panda_link1"
+        {
+            vector3f physics:angularVelocity = (19.08834, -6.544162, 0.9585221)
+            vector3f physics:velocity = (0.015948275, -0.017973743, -0.023475926)
+            quatf xformOp:orient = (1, 0.000047172864, 0.00011404937, 0.00020609269)
+            float3 xformOp:translate = (-0.016952768, -0.00082540454, 0.4580139)
+        }
+
+        over "panda_link2"
+        {
+            vector3f physics:angularVelocity = (-5.3913875, -6.5608907, 0.91361123)
+            vector3f physics:velocity = (0.015948275, -0.017973743, -0.02347593)
+            quatf xformOp:orient = (0.6301136, -0.6299221, -0.32117134, -0.32094225)
+            float3 xformOp:translate = (-0.016952738, -0.00082543434, 0.4580139)
+        }
+
+        over "panda_link3"
+        {
+            vector3f physics:angularVelocity = (-5.388302, -1.795757, -2.5592015)
+            vector3f physics:velocity = (-0.0012917639, -0.00046305568, 0.00053517125)
+            quatf xformOp:orient = (0.89097947, -0.00018749802, -0.45404288, 0.00079573184)
+            float3 xformOp:translate = (-0.2726239, -0.0009481814, 0.64372396)
+        }
+
+        over "panda_link4"
+        {
+            vector3f physics:angularVelocity = (1.037796, -1.792546, -2.5490334)
+            vector3f physics:velocity = (-0.0012110638, 0.005812796, -0.0040386077)
+            quatf xformOp:orient = (0.6491674, 0.6481309, 0.28177658, -0.28126487)
+            float3 xformOp:translate = (-0.22413956, -0.000817172, 0.71047354)
+        }
+
+        over "panda_link5"
+        {
+            vector3f physics:angularVelocity = (1.0342363, 0.0020495548, -0.870004)
+            vector3f physics:velocity = (-0.001336226, -0.0000026488417, 2.8279185e-10)
+            quatf xformOp:orient = (0.91732794, -0.00044489533, 0.3981309, 0.0010254867)
+            float3 xformOp:translate = (1.788072e-7, -0.00019678473, 1.0329998)
+        }
+
+        over "panda_link6"
+        {
+            vector3f physics:angularVelocity = (-3.111375e-7, -1.037125e-7, -0.8700037)
+            vector3f physics:velocity = (-0.001336226, -0.0000026488417, 2.8279185e-10)
+            quatf xformOp:orient = (0.7071062, 0.7071065, 0.00079043093, 0.0007904723)
+            float3 xformOp:translate = (1.788072e-7, -0.00019678473, 1.0329998)
+        }
+
+        over "panda_link7"
+        {
+            vector3f physics:angularVelocity = (0, 0, 0)
+            vector3f physics:velocity = (0, 0, 0)
+            quatf xformOp:orient = (6.123234e-17, 1, -1.7114271e-8, -1.2681629e-17)
+            float3 xformOp:translate = (0.08799997, -6.2616756e-8, 1.0329999)
+        }
+
+        over "panda_link8"
+        {
+            vector3f physics:angularVelocity = (0, 0, 0)
+            vector3f physics:velocity = (0, 0, 0)
+            quatf xformOp:orient = (6.123234e-17, 1, -1.7114271e-8, -1.2681629e-17)
+            float3 xformOp:translate = (0.08799997, -6.2616756e-8, 0.9259999)
+
+            def Xform "Mounted_Gavin" (
+                prepend references = @/home/ielminawi/setup/Gavin90DegMount_edited_P1S.usd@
+            )
+            {
+                double3 xformOp:rotateXYZ = (90, 0, 0)
+                float3 xformOp:scale = (0.001, 0.001, 0.001)
+                matrix4d xformOp:transform = ( (-1.9852335641101853e-26, 0.0010000000474974509, 1.2246468616556908e-19, 0), (1.9668135792086433e-19, 1.2246468616556908e-19, -0.0010000000474974509, 0), (-0.0010000000474974513, 2.408651962834832e-35, -1.9668135792086423e-19, 0), (0.3880012332593896, -0.08220011556511009, 0.4293014203002927, 1) )
+                double3 xformOp:translate = (-0.43220004999999995, 0.27600119999999995, 1.13169845)
+                uniform token[] xformOpOrder = ["xformOp:transform"]
+
+                over "node_"
+                {
+                    over "mesh_"
+                    {
+                        quatf xformOp:orient = (-0.22676606, 0.66975904, -0.25074086, -0.6611573)
+                        float3 xformOp:scale = (1, 1, 1)
+                        double3 xformOp:translate = (117.27210977116971, 435.63985599140597, 487.30844871197394)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                    }
+                }
+
+                def Xform "Mounted_Orca" (
+                    prepend references = @/home/ielminawi/setup/orca_v1/orca_v1.usd@
+                )
+                {
+                    double3 xformOp:rotateXYZ = (-75.01738355838782, 0, -90)
+                    float3 xformOp:scale = (1, 1, 1)
+                    matrix4d xformOp:transform = ( (2.22044594378479e-13, -2.22044594378479e-13, 999.999952502551, 0), (258.5259587012726, -966.004261731123, -2.719003290146728e-13, 0), (966.004261731123, 258.5259587012726, -1.570917402892947e-13, 0), (45.34104724978522, 372.09135618394134, 370.2195172388879, 1) )
+                    double3 xformOp:translate = (-0.3868590005966306, -0.09421833482337127, 1.5037898238573326)
+                    uniform token[] xformOpOrder = ["xformOp:transform"]
+
+                    over "worldBody"
+                    {
+                        over "worldBody"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "tower"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "palm"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "thumb_base"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "thumb_pp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "thumb_mp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "thumb_dp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "thumb_fingertip"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "index_um"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "index_pp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "index_mp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "index_fingertip"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "pinky_um"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "pinky_pp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "pinky_mp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "pinky_fingertip"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "middle_um"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "middle_pp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "middle_mp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "middle_fingertip"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "ring_um"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "ring_pp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "ring_mp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "ring_fingertip"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    def Xform "Franka_Right" (
+        prepend references = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Robots/Franka/franka_alt_fingers.usd@
+    )
+    {
+        quatd xformOp:orient = (0.7071067690849304, 0, 0, 0.7071067690849304)
+        double3 xformOp:translate = (0.3499999940395355, -0.20000000298023224, 0.6349999904632568)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        over "panda_hand"
+        {
+            vector3f physics:angularVelocity = (0, 0, 0)
+            vector3f physics:velocity = (0, 0, 0)
+            token visibility = "invisible"
+            quatf xformOp:orient = (3.6576598e-8, 0.9238795, 0.3826835, 4.9365088e-8)
+            float3 xformOp:translate = (0.08799998, -6.2616756e-8, 0.926)
+
+            over "geometry"
+            {
+                over "panda_hand"
+                {
+                    token visibility = "invisible"
+                }
+            }
+        }
+
+        over "panda_leftfinger"
+        {
+            vector3f physics:angularVelocity = (0, 0, 0)
+            vector3f physics:velocity = (0.0000026226044, 0.0000023841858, 4.5474735e-13)
+            token visibility = "invisible"
+            quatf xformOp:orient = (3.6576598e-8, 0.9238795, 0.3826835, 4.9365088e-8)
+            float3 xformOp:translate = (0.11628426, -0.028284345, 0.8676001)
+        }
+
+        over "panda_rightfinger"
+        {
+            vector3f physics:angularVelocity = (0, 0, 0)
+            vector3f physics:velocity = (-0.000013273209, -0.000013273209, -1.9779733e-12)
+            token visibility = "invisible"
+            quatf xformOp:orient = (3.6576598e-8, 0.9238795, 0.3826835, 4.9365088e-8)
+            float3 xformOp:translate = (0.059715703, 0.02828422, 0.86759996)
+        }
+
+        over "panda_link0"
+        {
+            vector3f physics:angularVelocity = (-29.330837, 26.320482, -30.5984)
+            vector3f physics:velocity = (-0.097397566, -0.14465058, -0.093853936)
+            quatf xformOp:orient = (0.99616593, -0.00019761326, -0.00012794485, 0.08748392)
+            float3 xformOp:translate = (-0.021171108, -0.000032036773, 0.12504864)
+        }
+
+        over "panda_link1"
+        {
+            vector3f physics:angularVelocity = (-29.339672, 26.310343, -31.972885)
+            vector3f physics:velocity = (0.05705425, 0.024529418, -0.096371144)
+            quatf xformOp:orient = (0.9999996, -0.00018580435, -0.00014457421, 0.00090976764)
+            float3 xformOp:translate = (-0.021267489, 0.00009161307, 0.45804858)
+        }
+
+        over "panda_link2"
+        {
+            vector3f physics:angularVelocity = (-11.793222, 26.17933, -32.10015)
+            vector3f physics:velocity = (0.057054266, 0.024529397, -0.09637119)
+            quatf xformOp:orient = (0.6314349, -0.6310903, -0.31923524, -0.31796834)
+            float3 xformOp:translate = (-0.021267459, 0.000091583264, 0.45804858)
+        }
+
+        over "panda_link3"
+        {
+            vector3f physics:angularVelocity = (-11.861994, -6.250826, -7.982892)
+            vector3f physics:velocity = (0.0011500705, 0.06364348, -0.043934047)
+            quatf xformOp:orient = (0.8927404, 0.00044691746, -0.45057082, 0.0004932941)
+            float3 xformOp:translate = (-0.27548483, -0.00030102383, 0.6457436)
+        }
+
+        over "panda_link4"
+        {
+            vector3f physics:angularVelocity = (13.779437, -6.2769866, -7.944876)
+            vector3f physics:velocity = (0.00078699307, 0.077355914, -0.054131832)
+            quatf xformOp:orient = (0.6476878, 0.6475525, 0.28434592, -0.28341433)
+            float3 xformOp:translate = (-0.2264822, -0.00026159704, 0.71211374)
+        }
+
+        over "panda_link5"
+        {
+            vector3f physics:angularVelocity = (13.777296, 0.0047298134, -2.109599)
+            vector3f physics:velocity = (-0.0032401043, -0.0000011128491, 6.860524e-10)
+            quatf xformOp:orient = (0.9158733, -0.00019214061, 0.4014671, 0.0004386887)
+            float3 xformOp:translate = (1.4898274e-8, -0.000084370375, 1.0329999)
+        }
+
+        over "panda_link6"
+        {
+            vector3f physics:angularVelocity = (-5.0296677e-7, 2.5148339e-7, -2.1095955)
+            vector3f physics:velocity = (-0.0032401043, -0.0000011128491, 6.860524e-10)
+            quatf xformOp:orient = (0.7071066, 0.70710677, 0.00033859568, 0.00033867676)
+            float3 xformOp:translate = (1.4898274e-8, -0.000084370375, 1.0329999)
+        }
+
+        over "panda_link7"
+        {
+            vector3f physics:angularVelocity = (0, 0, 0)
+            vector3f physics:velocity = (0, 0, 0)
+            quatf xformOp:orient = (1.4901167e-8, 1, 2.5032577e-8, 5.960465e-8)
+            float3 xformOp:translate = (0.08799996, -6.2616756e-8, 1.033)
+
+            over "geometry"
+            {
+                over "ID1683_001"
+                {
+                    matrix4d xformOp:transform = ( (0.7071066782751968, -0.7071068369578968, 0, 0), (0.7071068369578968, 0.7071066782751968, 0, 0), (0, 0, 0.9999999776482582, 0), (-6.617444752512802e-24, 0, 0.05200000169873231, 1) )
+                }
+
+                over "ID1683_001frA"
+                {
+                    matrix4d xformOp:transform = ( (0.7071066782751968, -0.7071068369578968, 0, 0), (0.7071068369578968, 0.7071066782751968, 0, 0), (0, 0, 0.9999999776482582, 0), (-6.617444752512802e-24, 0, 0.05200000169873231, 1) )
+                }
+            }
+        }
+
+        over "panda_link8"
+        {
+            vector3f physics:angularVelocity = (0, 0, 0)
+            vector3f physics:velocity = (0, 0, 0)
+            quatf xformOp:orient = (1.4901167e-8, 1, 2.5032577e-8, 5.960465e-8)
+            float3 xformOp:translate = (0.08799998, -6.2616756e-8, 0.926)
+
+            def Xform "Mounted_Gavin" (
+                customData = {
+                    dictionary omni = {
+                        dictionary kit = {
+                            bool locked = 1
+                        }
+                    }
+                }
+                prepend references = @/home/ielminawi/setup/Gavin90DegMount_edited_P1S.usd@
+            )
+            {
+                rel proxyPrim (
+                    customData = {
+                        dictionary omni = {
+                            dictionary kit = {
+                                bool locked = 1
+                            }
+                        }
+                    }
+                )
+                uniform token purpose (
+                    customData = {
+                        dictionary omni = {
+                            dictionary kit = {
+                                bool locked = 1
+                            }
+                        }
+                    }
+                )
+                token visibility (
+                    customData = {
+                        dictionary omni = {
+                            dictionary kit = {
+                                bool locked = 1
+                            }
+                        }
+                    }
+                )
+                quatf xformOp:orient (
+                    customData = {
+                        dictionary omni = {
+                            dictionary kit = {
+                                bool locked = 1
+                            }
+                        }
+                    }
+                )
+                double3 xformOp:rotateXYZ = (90, 0, 0) (
+                    customData = {
+                        dictionary omni = {
+                            dictionary kit = {
+                                bool locked = 1
+                            }
+                        }
+                    }
+                )
+                float3 xformOp:scale = (-0.001, 0.001, 0.001) (
+                    customData = {
+                        dictionary omni = {
+                            dictionary kit = {
+                                bool locked = 1
+                            }
+                        }
+                    }
+                )
+                matrix4d xformOp:transform = ( (8.429370135925582e-11, -0.001000000047497447, -2.980232751935873e-11, 0), (1.1920930889978883e-10, 2.980233756795203e-11, -0.0010000000474974433, 0), (-0.0010000000474974405, -8.429369780654045e-11, -1.192093114119376e-10, 0), (0.38800116849548666, 0.07280001626768656, 0.429301587932545, 1) )
+                double3 xformOp:translate = (0.42280005, 0.27600119999999995, 1.13169845) (
+                    customData = {
+                        dictionary omni = {
+                            dictionary kit = {
+                                bool locked = 1
+                            }
+                        }
+                    }
+                )
+                uniform token[] xformOpOrder = ["xformOp:transform"] (
+                    customData = {
+                        dictionary omni = {
+                            dictionary kit = {
+                                bool locked = 1
+                            }
+                        }
+                    }
+                )
+
+                over "node_"
+                {
+                    over "mesh_" (
+                        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysxRigidBodyAPI"]
+                    )
+                    {
+                        bool physics:kinematicEnabled = 0
+                        bool physics:rigidBodyEnabled = 0
+                        quatf xformOp:orient = (0.20951377, -0.66366464, 0.21617885, 0.68477726)
+                        float3 xformOp:scale = (1, 1, 1)
+                        double3 xformOp:translate = (109.7489829801155, 432.87721557401414, 471.284135670962)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                    }
+                }
+
+                def Xform "Mounted_Orca" (
+                    prepend references = @/home/ielminawi/setup/orca_v1/orca_v1.usd@
+                )
+                {
+                    double3 xformOp:rotateXYZ = (-80.43491766095488, -2.7017431001269188, 95.11479611422749)
+                    float3 xformOp:scale = (1, 1, 1)
+                    matrix4d xformOp:transform = ( (89.05241108916434, 47.13683751221315, -994.9108963287408, 0), (169.65004409714678, -985.0013355926304, -31.482319223247586, 0), (981.4725852626487, 165.98310888516792, 95.71351496926566, 0), (43.885691267232744, 350.737749515489, 425.8739082132647, 1) )
+                    double3 xformOp:translate = (0.37891435664830875, -0.14987272844118985, 1.4824362161746383)
+                    uniform token[] xformOpOrder = ["xformOp:transform"]
+
+                    over "worldBody"
+                    {
+                        over "worldBody"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "tower"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "palm"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "thumb_base"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "thumb_pp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "thumb_mp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "thumb_dp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "thumb_fingertip"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "index_um"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "index_pp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "index_mp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "index_fingertip"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "pinky_um"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "pinky_pp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "pinky_mp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "pinky_fingertip"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "middle_um"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "middle_pp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "middle_mp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "middle_fingertip"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "ring_um"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "ring_pp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "ring_mp"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+
+                        over "ring_fingertip"
+                        {
+                            bool physics:kinematicEnabled = 0
+                            bool physics:rigidBodyEnabled = 0
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
