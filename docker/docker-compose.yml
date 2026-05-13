@@ -65,7 +65,7 @@ services:
       eval_utils/run_sim_eval_bimanual.py
       --headless
       --enable_cameras
-      --enable omni.kit.livestream.native
+      --livestream 2
       --host dreamzero-inference
       --port 8000
       --instruction "${EVAL_INSTRUCTION:-pick up the object}"

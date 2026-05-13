@@ -68,11 +68,17 @@ class ARDroidRoboarenaPolicy:
         self._embodiment = embodiment
         
         # Frame buffers for accumulation (per camera view)
-        self._frame_buffers: dict[str, list[np.ndarray]] = {
-            "video.exterior_image_1_left": [],
-            "video.exterior_image_2_left": [],
-            "video.wrist_image_left": [],
-        }
+        if embodiment == "franka_orca_bimanual":
+            self._frame_buffers: dict[str, list[np.ndarray]] = {
+                "video.aria_rgb_cam": [],
+                "video.oakd_front_view": [],
+            }
+        else:
+            self._frame_buffers: dict[str, list[np.ndarray]] = {
+                "video.exterior_image_1_left": [],
+                "video.exterior_image_2_left": [],
+                "video.wrist_image_left": [],
+            }
         self._call_count = 0
         self._is_first_call = True
         
@@ -108,12 +114,18 @@ class ARDroidRoboarenaPolicy:
         """
         converted = {}
         
-        # Map image keys (roboarena uses 0-indexed, AR_droid uses 1-indexed)
-        image_key_mapping = {
-            "observation/exterior_image_0_left": "video.exterior_image_1_left",
-            "observation/exterior_image_1_left": "video.exterior_image_2_left",
-            "observation/wrist_image_left": "video.wrist_image_left",
-        }
+        # Map image keys
+        if self._embodiment == "franka_orca_bimanual":
+            image_key_mapping = {
+                "observation/exterior_image_0_left": "video.aria_rgb_cam",
+                "observation/exterior_image_1_left": "video.oakd_front_view",
+            }
+        else:
+            image_key_mapping = {
+                "observation/exterior_image_0_left": "video.exterior_image_1_left",
+                "observation/exterior_image_1_left": "video.exterior_image_2_left",
+                "observation/wrist_image_left": "video.wrist_image_left",
+            }
         
         # Accumulate frames for each camera view
         for roboarena_key, droid_key in image_key_mapping.items():
@@ -424,7 +436,7 @@ class WebsocketPolicyServer:
         except Exception:
             return
 
-        for key in ("video.exterior_image_1_left", "video.exterior_image_2_left", "video.wrist_image_left"):
+        for key in self._frame_buffers.keys():
             if key not in obs:
                 continue
             value = obs[key]

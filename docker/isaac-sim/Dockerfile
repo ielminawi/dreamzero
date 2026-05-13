@@ -7,7 +7,7 @@ ENV PYTHONUNBUFFERED=1
 ENV TERM=xterm
 
 # Install git (not included in Isaac Sim base image)
-RUN apt-get update && apt-get install -y --no-install-recommends git cmake build-essential && \
+RUN apt-get update && apt-get install -y --no-install-recommends git cmake build-essential ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 # flatdict's setup.py needs pkg_resources; pip's build-isolation env lacks it.
@@ -46,4 +46,4 @@ EXPOSE 8211 49100
 ENTRYPOINT ["/opt/IsaacLab/isaaclab.sh", "-p"]
 CMD ["eval_utils/run_sim_eval_bimanual.py", \
      "--headless", \
-     "--enable", "omni.kit.livestream.native"]
+     "--livestream", "2"]

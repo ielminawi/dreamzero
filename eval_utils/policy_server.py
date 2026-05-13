@@ -101,11 +101,12 @@ class WebsocketPolicyServer:
                 
                 endpoint = obs["endpoint"]
                 del obs["endpoint"]
+                loop = asyncio.get_event_loop()
                 if endpoint == "reset":
-                    self._policy.reset(obs)
+                    await loop.run_in_executor(None, self._policy.reset, obs)
                     to_return = "reset successful"
                 else:
-                    action = self._policy.infer(obs)
+                    action = await loop.run_in_executor(None, self._policy.infer, obs)
                     to_return = packer.pack(action)
                 await websocket.send(to_return)
             except websockets.ConnectionClosed:

@@ -74,9 +74,9 @@ class DreamZeroBimanualClient:
             [left_arm(7), right_arm(7), left_hand(17), right_hand(17)]
     """
 
-    # Inference image resolution (matches training: 320x176 W×H)
-    INFER_WIDTH = 320
-    INFER_HEIGHT = 176
+    # Inference image resolution (matches training: 640x480 W×H for aria_rgb_cam)
+    INFER_WIDTH = 640
+    INFER_HEIGHT = 480
 
     def __init__(
         self,
