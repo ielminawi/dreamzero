@@ -12,6 +12,9 @@ services:
       - NCCL_DEBUG=WARN
       - WAN_CKPT_DIR=${WAN_CKPT_DIR:-/checkpoints/Wan2.1-I2V-14B-480P}
       - TOKENIZER_DIR=${TOKENIZER_DIR:-/checkpoints/umt5-xxl}
+      - TEXT_ENCODER_PRETRAINED_PATH=${TEXT_ENCODER_PRETRAINED_PATH}
+      - IMAGE_ENCODER_PRETRAINED_PATH=${IMAGE_ENCODER_PRETRAINED_PATH}
+      - VAE_PRETRAINED_PATH=${VAE_PRETRAINED_PATH}
       - HF_HOME=/checkpoints/.cache/huggingface
       - HF_HUB_OFFLINE=1
     volumes:
