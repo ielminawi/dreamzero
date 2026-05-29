@@ -355,77 +355,200 @@ class VLA(PreTrainedModel):
         print(f"{cls}\n")
         return model
 
+    @staticmethod
+    def _load_safetensors_state_dict(path: str) -> dict:
+        """Load a (possibly sharded) safetensors checkpoint into a flat state dict."""
+        from safetensors.torch import load_file
+        import os
+        import json
+
+        safetensors_path = os.path.join(path, "model.safetensors")
+        index_path = os.path.join(path, "model.safetensors.index.json")
+        state_dict = {}
+        if os.path.exists(index_path):
+            with open(index_path, "r") as f:
+                index = json.load(f)
+            for shard_file in set(index["weight_map"].values()):
+                state_dict.update(load_file(os.path.join(path, shard_file)))
+        elif os.path.exists(safetensors_path):
+            state_dict.update(load_file(safetensors_path))
+        else:
+            raise FileNotFoundError(
+                f"No 'model.safetensors' or index found at '{path}'."
+            )
+        return state_dict
+
+    @staticmethod
+    def _resolve_base_model_path(checkpoint_dir: str):
+        """Resolve the base model a LoRA checkpoint was fine-tuned on.
+
+        A save_lora_only checkpoint stores only LoRA deltas + robot MLPs, never the
+        DiT/encoder/VAE base. The training config records the base it was tuned on
+        (pretrained_model_path, e.g. ./checkpoints/DreamZero-AgiBot). The DiT base
+        must come from THAT model, not vanilla Wan2.1.
+        """
+        import os
+        import traceback
+
+        conf_path = os.path.join(checkpoint_dir, "experiment_cfg", "conf.yaml")
+        if not os.path.isfile(conf_path):
+            return None
+        try:
+            from omegaconf import OmegaConf
+        except ImportError:
+            print(f"[_resolve_base_model_path] omegaconf not installed; cannot parse {conf_path}")
+            return None
+        try:
+            cfg = OmegaConf.load(conf_path)
+            raw = cfg.get("pretrained_model_path", None)
+            if raw is not None:
+                raw = OmegaConf.to_object(OmegaConf.create({"_": raw}))["_"]
+        except Exception:
+            print(f"[_resolve_base_model_path] Failed to parse {conf_path}:")
+            traceback.print_exc()
+            return None
+        if not raw:
+            return None
+        raw = os.path.expanduser(os.path.expandvars(str(raw)))
+
+        candidates = [raw]
+        if raw.startswith("./"):
+            candidates.append(raw[2:])   # ./checkpoints/X -> checkpoints/X
+        parent = os.path.dirname(os.path.abspath(checkpoint_dir))
+        candidates.append(os.path.join(parent, os.path.basename(raw.rstrip("/"))))
+        for c in candidates:
+            if c and os.path.isdir(c):
+                return os.path.abspath(c)
+        print(f"[_resolve_base_model_path] pretrained_model_path={raw!r} did not resolve to "
+              f"a directory; tried {candidates}")
+        return None
+
     @classmethod
     def load_lora(
-        cls, 
-        pretrained_model_name_or_path: str
-    ): 
-        from safetensors.torch import load_file
+        cls,
+        pretrained_model_name_or_path: str,
+        base_model_path: str = None,
+    ):
         import os
         import json
         print("loading lora@@@@@")
 
-        # Check for different checkpoint formats
-        safetensors_path = os.path.join(pretrained_model_name_or_path, "model.safetensors")
-        safetensors_index_path = os.path.join(pretrained_model_name_or_path, "model.safetensors.index.json")
-        
-        state_dict = {}
-        if os.path.exists(safetensors_index_path):
-            # Handle sharded safetensors
-            print(f"Loading sharded safetensors using index: {safetensors_index_path}")
-            
-            with open(safetensors_index_path, 'r') as f:
-                index = json.load(f)
-            
-            # Load each shard
-            for shard_file in set(index["weight_map"].values()):
-                shard_path = os.path.join(pretrained_model_name_or_path, shard_file)
-                print(f"Loading shard: {shard_path}")
-                shard_state_dict = load_file(shard_path)
-                state_dict.update(shard_state_dict)
-                
-        elif os.path.exists(safetensors_path):
-            # Handle single safetensors file
-            print(f"Loading weights from safetensors: {safetensors_path}")
-            state_dict.update(load_file(safetensors_path))
-        
-        # Load config
-        print("loading config@@")
+        # LoRA delta + robot-MLP weights live in the LoRA checkpoint itself.
+        state_dict = cls._load_safetensors_state_dict(pretrained_model_name_or_path)
+
+        # Config
         config_path = os.path.join(pretrained_model_name_or_path, "config.json")
         with open(config_path, "r") as f:
             config_dict = json.load(f)
         config = VLAConfig(**config_dict)
-        print("loading model")
 
-        # Disable defer_lora_injection so LoRA layers are created during init,
-        # matching the PEFT key hierarchy (base_model.model.*) in the checkpoint.
         ah_cfg = config.action_head_cfg
         inner = ah_cfg.get('config', ah_cfg) if isinstance(ah_cfg.get('config'), dict) else ah_cfg
+
+        # The LoRA was fine-tuned on a base model (e.g. DreamZero-AgiBot), so the DiT
+        # backbone, encoders and VAE must be rebuilt from THAT model — not vanilla Wan2.1.
+        if base_model_path is None:
+            base_model_path = cls._resolve_base_model_path(pretrained_model_name_or_path)
+
+        if base_model_path is not None and os.path.isdir(base_model_path):
+            print(f"[load_lora] Rebuilding DiT base from training base model: {base_model_path}")
+            # Mirror the training-time flow: load base full weights -> inject LoRA -> load delta.
+            # Force the action_head config flags unconditionally — if a key is absent,
+            # the action_head config dataclass default would override our intent.
+            inner['defer_lora_injection'] = True
+            inner['skip_component_loading'] = True
+
+            model = cls(config)
+
+            # 1) Load base full weights (DiT + text/image/VAE encoders), shape-filtered.
+            #    The base's robot MLPs use a different action_dim and are skipped here;
+            #    the LoRA checkpoint's robot MLPs are loaded in step 3.
+            base_sd = cls._load_safetensors_state_dict(base_model_path)
+            model_sd = model.state_dict()
+            filtered = {}
+            shape_mismatch_keys = []
+            for k, v in base_sd.items():
+                if k not in model_sd:
+                    continue
+                if v.shape == model_sd[k].shape:
+                    filtered[k] = v
+                else:
+                    shape_mismatch_keys.append(k)
+            missing_from_base = sorted(set(model_sd.keys()) - set(base_sd.keys()))
+            base_missing, base_unexpected = model.load_state_dict(filtered, strict=False)
+            print(f"[load_lora] base: loaded {len(filtered)}/{len(model_sd)} model params "
+                  f"({len(shape_mismatch_keys)} skipped on shape mismatch, "
+                  f"{len(missing_from_base)} model keys not present in base_sd)")
+            if shape_mismatch_keys:
+                print(f"  shape-mismatch (first 5): {shape_mismatch_keys[:5]}")
+            if missing_from_base:
+                print(f"  model-keys-missing-from-base (first 5): {missing_from_base[:5]}")
+
+            # Sanity: refuse to silently run on a base that lacks the DiT backbone.
+            dit_loaded = sum(1 for k in filtered if "diffusion_model" in k or k.startswith("action_head.model"))
+            if dit_loaded == 0:
+                raise RuntimeError(
+                    f"[load_lora] base_sd at '{base_model_path}' contributed 0 DiT weights to the "
+                    f"model — base resolution is almost certainly wrong. Inspect "
+                    f"experiment_cfg/conf.yaml::pretrained_model_path."
+                )
+
+            # 2) Inject LoRA adapters: base weights move under base_model.model.*.base_layer.
+            if not (hasattr(model, 'action_head')
+                    and hasattr(model.action_head, 'inject_lora_after_loading')):
+                raise RuntimeError(
+                    "[load_lora] action_head does not expose inject_lora_after_loading(); "
+                    "primary path forced defer_lora_injection=True but injection is unreachable. "
+                    "Refusing to silently load LoRA delta into a model with no adapters."
+                )
+            model.action_head.inject_lora_after_loading()
+            # Verify injection actually wrapped the model (PEFT prefixes appear in keys).
+            post_inject_keys = model.state_dict().keys()
+            if not any(".lora_A." in k or ".base_layer." in k for k in post_inject_keys):
+                raise RuntimeError(
+                    "[load_lora] inject_lora_after_loading() ran but produced no LoRA / base_layer "
+                    "keys. Check action_head.train_architecture == 'lora'."
+                )
+
+            # 3) Load the LoRA delta + robot MLPs (keys already in base_model.model.* form).
+            missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+            print(f"[load_lora] lora delta: {len(unexpected_keys)} unexpected, "
+                  f"{len(missing_keys)} missing model params")
+            if unexpected_keys:
+                print(f"  unexpected (first 10): {unexpected_keys[:10]}")
+            # If the delta checkpoint wholly failed to land (no keys overlap the post-injection
+            # namespace), the LoRA is silently absent — refuse to return a model in that state.
+            if len(unexpected_keys) > 0 and len(state_dict) > 0 and len(unexpected_keys) == len(state_dict):
+                raise RuntimeError(
+                    f"[load_lora] ALL {len(state_dict)} keys in the LoRA delta were unexpected — "
+                    f"none landed in the model. Likely a key-namespace mismatch (e.g. PEFT prefix "
+                    f"not present). First unexpected: {unexpected_keys[:3]}"
+                )
+            print(f"{cls}\n")
+            return model
+
+        # ---- Fallback (original behavior): rebuild DiT base from config component paths ----
+        print("[load_lora] No training base model resolved; falling back to "
+              "config-specified component paths (e.g. Wan2.1).")
         if 'defer_lora_injection' in inner:
             inner['defer_lora_injection'] = False
             print("defer_lora_injection disabled for load_lora")
-        # Enable component loading so DiT base weights are loaded from pretrained
         if 'skip_component_loading' in inner:
             inner['skip_component_loading'] = False
             print("skip_component_loading disabled for load_lora")
 
-        # Instantiate model (LoRA layers now exist from init)
         model = cls(config)
 
-        # Remove .base_layer from keys if present
         has_base_layer = any(".base_layer." in key for key in state_dict.keys())
         if has_base_layer:
             print("Removing '.base_layer' from state dict keys")
             state_dict = {k.replace(".base_layer.", "."): v for k, v in state_dict.items()}
 
-        # Load weights
         missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
-            
         if missing_keys:
             print(f"Missing keys when loading pretrained weights: {missing_keys}")
         if unexpected_keys:
             print(f"Unexpected keys when loading pretrained weights: {unexpected_keys}")
-        
         print("Successfully loaded pretrained weights")
 
         print(f"{cls}\n")

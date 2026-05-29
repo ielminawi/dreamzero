@@ -234,25 +234,27 @@ class WANPolicyHead(ActionHead):
         self.action_horizon = config.action_horizon
         self.num_inference_timesteps = config.num_inference_timesteps
         
-        text_enc_path = ensure_file(
-            self.text_encoder.text_encoder_pretrained_path,
-            "models_t5_umt5-xxl-enc-bf16.pth",
-        )
-        self.text_encoder.load_state_dict(torch.load(text_enc_path, map_location='cpu'))
-
-        img_enc_path = ensure_file(
-            self.image_encoder.image_encoder_pretrained_path,
-            "models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth",
-        )
-        self.image_encoder.model.load_state_dict(torch.load(img_enc_path, map_location='cpu'), strict=False)
-
-        vae_path = ensure_file(
-            self.vae.vae_pretrained_path,
-            "Wan2.1_VAE.pth",
-        )
-        self.vae.model.load_state_dict(torch.load(vae_path, map_location='cpu'))
-
         if not config.skip_component_loading:
+            # When skip_component_loading=True, all encoder weights come from the
+            # main checkpoint shards (e.g. DreamZero-AgiBot), so skip file loading.
+            text_enc_path = ensure_file(
+                self.text_encoder.text_encoder_pretrained_path,
+                "models_t5_umt5-xxl-enc-bf16.pth",
+            )
+            self.text_encoder.load_state_dict(torch.load(text_enc_path, map_location='cpu', weights_only=True))
+
+            img_enc_path = ensure_file(
+                self.image_encoder.image_encoder_pretrained_path,
+                "models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth",
+            )
+            self.image_encoder.model.load_state_dict(torch.load(img_enc_path, map_location='cpu', weights_only=True), strict=False)
+
+            vae_path = ensure_file(
+                self.vae.vae_pretrained_path,
+                "Wan2.1_VAE.pth",
+            )
+            self.vae.model.load_state_dict(torch.load(vae_path, map_location='cpu', weights_only=True))
+
             dit_dir = self.model.diffusion_model_pretrained_path
             if dit_dir is None or not os.path.isdir(dit_dir):
                 index_path = hf_hub_download(repo_id=WAN_HF_REPO_ID, filename="diffusion_pytorch_model.safetensors.index.json")
