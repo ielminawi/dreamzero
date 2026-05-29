@@ -1,4 +1,8 @@
-# DreamZero: World Action Models Are Zero-Shot Policies
+# NVIDIA DreamZero: World Action Models Are Zero-Shot Policies
+A research project from [NVIDIA GEAR Lab](https://research.nvidia.com/labs/gear/).
+
+[![NVIDIA](https://img.shields.io/badge/NVIDIA-76B900?style=flat&logo=nvidia&logoColor=white)](https://www.nvidia.com) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE) [![arXiv](https://img.shields.io/badge/arXiv-2602.15922-b31b1b.svg)](https://arxiv.org/abs/2602.15922)
+
 [[Project Page](https://dreamzero0.github.io/)] [[Paper](https://arxiv.org/abs/2602.15922)]
 
 DreamZero is a World Action Model that jointly predicts actions and videos, achieving strong zero-shot performance on unseen tasks. This release package contains everything needed to load a pretrained DreamZero model and run distributed inference via a WebSocket server.
@@ -87,6 +91,12 @@ MAX_JOBS=8 pip install --no-build-isolation flash-attn
 pip install --no-build-isolation transformer_engine[pytorch]
 ```
 
+5. **[GB200 ONLY FOR TENSORRT, SKIP FOR H100] Install Tensorrt:**
+```bash
+pip install tensorrt==10.13.2.6 tensorrt_cu13==10.13.2.6 tensorrt_cu13_libs==10.13.2.6 tensorrt_cu13_bindings==10.13.2.6 --no-deps
+pip install transformer_engine==2.10.0 transformer_engine_cu12==2.10.0 transformer_engine_torch==2.10.0
+```
+
 ## Downloading Pretrained Checkpoints
 
 ### DreamZero-DROID (for inference)
@@ -123,6 +133,12 @@ The inference server uses PyTorch distributed training utilities to parallelize 
 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.run --standalone --nproc_per_node=2 socket_test_optimized_AR.py --port 5000 --enable-dit-cache --model-path <path/to/checkpoint>
 ```
 
+(Optional only for GB200) Tensorrt enables faster generation
+```bash
+export LOAD_TRT_ENGINE=<path/to/checkpoint>/tensorrt/wan/WanModel_nvfp4.trt 
+export DYNAMIC_CACHE_SCHEDULE=true 
+CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.run --standalone --nproc_per_node=2 /mnt/aws-lfs-02/shared/seonghyeony/dreamzero/socket_test_optimized_AR.py --port 8000 --enable-dit-cache --model-path <path/to/checkpoint>
+```
 To verify the server is working, run a test client. The first few inferences will take a few minutes to warm up. After warming up, inference takes ~0.6s on GB200 and ~3s on H100.
 
 ```
@@ -203,6 +219,8 @@ export TOKENIZER_DIR="./checkpoints/umt5-xxl"
 # Launch training
 bash scripts/train/droid_training.sh
 ```
+
+**Using Wan2.2-TI2V-5B backbone (5B params, lower VRAM):** To train with the smaller Wan2.2-TI2V-5B model instead of Wan2.1-I2V-14B, see [docs/WAN22_BACKBONE.md](docs/WAN22_BACKBONE.md) and run `bash scripts/train/droid_training_wan22.sh`.
 
 ### Training Configuration
 
