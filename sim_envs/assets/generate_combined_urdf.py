@@ -109,7 +109,15 @@ def build_franka_arm_xml() -> ET.Element:
         color = ET.SubElement(mat, "color")
         color.set("rgba", rgba)
 
-    # Create links with simple cylinder geometry
+    # Real Franka Panda meshes (link0..link7) from the official franka_description
+    # package, copied out of the Isaac Sim URDF-importer assets into
+    # sim_envs/assets/franka_description/meshes/. Each linkN.dae is authored in the
+    # panda_linkN frame, so it attaches with an identity visual origin — exactly as
+    # in the upstream Franka URDF whose kinematics FRANKA_JOINTS mirrors. link8 is a
+    # virtual flange (no mesh); the Orca hand mounts there.
+    FRANKA_VISUAL_MESH = {f"panda_link{i}": f"link{i}" for i in range(8)}
+
+    # Create links with the real Franka meshes
     for link_name, mass, radius, length, color_rgba in FRANKA_LINKS:
         link = ET.SubElement(robot, "link")
         link.set("name", link_name)
@@ -126,36 +134,21 @@ def build_franka_arm_xml() -> ET.Element:
                           ("iyy", i_val), ("iyz", 0), ("izz", i_val)]:
             inertia.set(attr, f"{val:.9f}")
 
-        if radius > 0 and mass > 0:
-            # Visual
+        mesh_name = FRANKA_VISUAL_MESH.get(link_name)
+        if mesh_name is not None:
+            # Visual — real Franka mesh (DAE carries the white Franka materials)
             visual = ET.SubElement(link, "visual")
-            v_origin = ET.SubElement(visual, "origin")
-            v_origin.set("xyz", f"0 0 {length / 2 if length > 0 else 0}")
-            v_origin.set("rpy", "0 0 0")
-            geometry = ET.SubElement(visual, "geometry")
-            if length > 0.01:
-                cyl = ET.SubElement(geometry, "cylinder")
-                cyl.set("radius", str(radius))
-                cyl.set("length", str(length))
-            else:
-                sph = ET.SubElement(geometry, "sphere")
-                sph.set("radius", str(radius))
-            mat_ref = ET.SubElement(visual, "material")
-            mat_ref.set("name", "grey" if "0.9" in color_rgba else "dark")
+            ET.SubElement(visual, "origin", {"xyz": "0 0 0", "rpy": "0 0 0"})
+            vg = ET.SubElement(visual, "geometry")
+            ET.SubElement(vg, "mesh", {
+                "filename": f"franka_description/meshes/visual/{mesh_name}.dae"})
 
-            # Collision (same as visual)
+            # Collision — matching convex STL
             collision = ET.SubElement(link, "collision")
-            c_origin = ET.SubElement(collision, "origin")
-            c_origin.set("xyz", f"0 0 {length / 2 if length > 0 else 0}")
-            c_origin.set("rpy", "0 0 0")
-            c_geometry = ET.SubElement(collision, "geometry")
-            if length > 0.01:
-                c_cyl = ET.SubElement(c_geometry, "cylinder")
-                c_cyl.set("radius", str(radius))
-                c_cyl.set("length", str(length))
-            else:
-                c_sph = ET.SubElement(c_geometry, "sphere")
-                c_sph.set("radius", str(radius))
+            ET.SubElement(collision, "origin", {"xyz": "0 0 0", "rpy": "0 0 0"})
+            cg = ET.SubElement(collision, "geometry")
+            ET.SubElement(cg, "mesh", {
+                "filename": f"franka_description/meshes/collision/{mesh_name}.stl"})
 
     # Create revolute joints
     for jname, parent, child, xyz, rpy, axis, lower, upper in FRANKA_JOINTS:
@@ -399,8 +392,12 @@ def main():
     #
     # Mounting: hand root at the flange origin, no rotation needed (both Z-up).
     # Fine-tuning may be needed after visual inspection in Isaac Sim.
-    mount_xyz = "0 0 0"
-    mount_rpy = "0 0 0"
+    # Hand mount relative to the Franka flange (panda_link8). The real rig uses a
+    # 90-degree "Gavin" bracket that bends the Orca hand so its fingers hang down
+    # perpendicular to the forearm. Configurable via env to sweep orientations.
+    mount_xyz = os.environ.get("MOUNT_XYZ", "0 0 0")
+    mount_rpy = os.environ.get("MOUNT_RPY", "0 0 0")
+    print(f"[mount] mount_xyz='{mount_xyz}' mount_rpy='{mount_rpy}'")
 
     # Combine right arm + right hand
     print("Combining right arm + right hand...")

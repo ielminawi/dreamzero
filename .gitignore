@@ -246,3 +246,9 @@ checkpoints/
 
 # Video files
 *.mp4
+
+# Render/eval outputs (local)
+output/
+*.primbak
+*.meshbak
+*.bak

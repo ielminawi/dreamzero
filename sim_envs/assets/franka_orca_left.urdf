@@ -16,6 +16,18 @@
       <mass value="0.0"/>
       <inertia ixx="0.000000001" ixy="0.000000000" ixz="0.000000000" iyy="0.000000001" iyz="0.000000000" izz="0.000000001"/>
     </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="franka_description/meshes/visual/link0.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="franka_description/meshes/collision/link0.stl"/>
+      </geometry>
+    </collision>
   </link>
   <link name="panda_link1">
     <inertial>
@@ -25,16 +37,15 @@
       <inertia ixx="0.004970000" ixy="0.000000000" ixz="0.000000000" iyy="0.004970000" iyz="0.000000000" izz="0.004970000"/>
     </inertial>
     <visual>
-      <origin xyz="0 0 0.095" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <cylinder radius="0.06" length="0.19"/>
+        <mesh filename="franka_description/meshes/visual/link1.dae"/>
       </geometry>
-      <material name="grey"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.095" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <cylinder radius="0.06" length="0.19"/>
+        <mesh filename="franka_description/meshes/collision/link1.stl"/>
       </geometry>
     </collision>
   </link>
@@ -48,14 +59,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <sphere radius="0.06"/>
+        <mesh filename="franka_description/meshes/visual/link2.dae"/>
       </geometry>
-      <material name="grey"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <sphere radius="0.06"/>
+        <mesh filename="franka_description/meshes/collision/link2.stl"/>
       </geometry>
     </collision>
   </link>
@@ -67,16 +77,15 @@
       <inertia ixx="0.003228000" ixy="0.000000000" ixz="0.000000000" iyy="0.003228000" iyz="0.000000000" izz="0.003228000"/>
     </inertial>
     <visual>
-      <origin xyz="0 0 0.095" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <cylinder radius="0.06" length="0.19"/>
+        <mesh filename="franka_description/meshes/visual/link3.dae"/>
       </geometry>
-      <material name="grey"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.095" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <cylinder radius="0.06" length="0.19"/>
+        <mesh filename="franka_description/meshes/collision/link3.stl"/>
       </geometry>
     </collision>
   </link>
@@ -90,14 +99,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <sphere radius="0.06"/>
+        <mesh filename="franka_description/meshes/visual/link4.dae"/>
       </geometry>
-      <material name="grey"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <sphere radius="0.06"/>
+        <mesh filename="franka_description/meshes/collision/link4.stl"/>
       </geometry>
     </collision>
   </link>
@@ -109,16 +117,15 @@
       <inertia ixx="0.001225000" ixy="0.000000000" ixz="0.000000000" iyy="0.001225000" iyz="0.000000000" izz="0.001225000"/>
     </inertial>
     <visual>
-      <origin xyz="0 0 0.095" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <cylinder radius="0.06" length="0.19"/>
+        <mesh filename="franka_description/meshes/visual/link5.dae"/>
       </geometry>
-      <material name="grey"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.095" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <cylinder radius="0.06" length="0.19"/>
+        <mesh filename="franka_description/meshes/collision/link5.stl"/>
       </geometry>
     </collision>
   </link>
@@ -132,14 +139,13 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <sphere radius="0.05"/>
+        <mesh filename="franka_description/meshes/visual/link6.dae"/>
       </geometry>
-      <material name="grey"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <sphere radius="0.05"/>
+        <mesh filename="franka_description/meshes/collision/link6.stl"/>
       </geometry>
     </collision>
   </link>
@@ -151,16 +157,15 @@
       <inertia ixx="0.000735000" ixy="0.000000000" ixz="0.000000000" iyy="0.000735000" iyz="0.000000000" izz="0.000735000"/>
     </inertial>
     <visual>
-      <origin xyz="0 0 0.03" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <cylinder radius="0.04" length="0.06"/>
+        <mesh filename="franka_description/meshes/visual/link7.dae"/>
       </geometry>
-      <material name="dark"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.03" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <cylinder radius="0.04" length="0.06"/>
+        <mesh filename="franka_description/meshes/collision/link7.stl"/>
       </geometry>
     </collision>
   </link>
