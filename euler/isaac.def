@@ -1,0 +1,54 @@
+Bootstrap: docker
+From: nvcr.io/nvidia/isaac-sim:4.5.0
+
+# DreamZero closed-loop eval container for Euler (Apptainer port of docker/isaac-sim/Dockerfile).
+# Base nvcr.io/nvidia/isaac-sim:4.5.0 is public (no NGC login). Adds IsaacLab v2.1.0 +
+# the websocket eval-client deps. Built with --fakeroot; %post reaches the internet via the
+# Euler proxy (baked below because %post runs inside the container namespace).
+
+%post
+    set -e
+    export DEBIAN_FRONTEND=noninteractive
+    export TERM=xterm   # IsaacLab's isaaclab.sh calls `tabs`/tput; without this it dies "'ansi+tabs': unknown terminal type"
+    # Euler compute-node proxy (needed for apt / pip / git during build)
+    export HTTP_PROXY=http://proxy.service.consul:3128
+    export HTTPS_PROXY=http://proxy.service.consul:3128
+    export http_proxy=http://proxy.service.consul:3128
+    export https_proxy=http://proxy.service.consul:3128
+    export no_proxy=localhost,127.0.0.1,.consul
+
+    apt-get update && apt-get install -y --no-install-recommends \
+        git cmake build-essential ffmpeg && \
+        rm -rf /var/lib/apt/lists/*
+
+    # flatdict's setup.py needs pkg_resources
+    /isaac-sim/python.sh -m pip install --no-cache-dir setuptools
+    /isaac-sim/python.sh -m pip install --no-cache-dir --no-build-isolation flatdict==4.0.1
+
+    # Install IsaacLab v2.1.0 against the bundled Isaac Sim
+    cd /opt
+    git clone --branch v2.1.0 --depth 1 https://github.com/isaac-sim/IsaacLab.git
+    cd IsaacLab
+    ln -s /isaac-sim _isaac_sim
+    ./isaaclab.sh --install
+
+    # Eval-client deps used by eval_utils/policy_client.py + run_sim_eval_bimanual.py
+    /opt/IsaacLab/isaaclab.sh -p -m pip install --no-cache-dir \
+        websockets msgpack msgpack-numpy openpi-client==0.1.1 tyro mediapy tqdm
+
+%environment
+    export OMNI_KIT_ALLOW_ROOT=1
+    export ACCEPT_EULA=Y
+    export LIVESTREAM_ENABLED=false
+    # Isaac headless RTX needs graphics caps; --nv + host driver provide Vulkan/GL.
+    export NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility,display
+
+%runscript
+    # Usage: apptainer run --nv --pwd /app isaac-sim.sif eval_utils/run_sim_eval_bimanual.py --headless ...
+    exec /opt/IsaacLab/isaaclab.sh -p "$@"
+
+%labels
+    Project DreamZero
+    Component isaac-sim-eval
+    IsaacSim 4.5.0
+    IsaacLab v2.1.0

@@ -4,6 +4,12 @@ __pycache__/
 *$py.class
 wandb/
 
+# Large build/runtime artifacts (Euler setup) — never commit
+*.sif
+isaac-sim.sif
+*.img
+.venv/
+
 # C extensions
 
 

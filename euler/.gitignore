@@ -1,0 +1,6 @@
+# Generated at runtime / build time — do not commit
+logs/
+hfvenv/
+ovhome/
+*.img
+dev_jobid.txt

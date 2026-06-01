@@ -187,6 +187,8 @@ class DreamZeroBimanualClient:
 def main():
     print("\n=== Creating FrankaOrcaBimanual-v0 environment ===")
     cfg = FrankaOrcaBimanualEnvCfg()
+    cfg.sim.device = args.device  # honor --device (Blackwell GPUs: Isaac's bundled torch is cu118
+    # with no sm_120 kernels, so run PhysX/state on cpu; RTX camera rendering stays on the GPU)
     env = FrankaOrcaBimanualEnv(cfg)
 
     # Double reset (first loads assets, second stabilises materials)

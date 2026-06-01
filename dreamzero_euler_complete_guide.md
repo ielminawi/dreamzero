@@ -1,3 +1,13 @@
+> **End-to-end inference + Isaac Sim is validated and scripted** — see [`euler/README_EULER.md`](euler/README_EULER.md).
+> On a GPU node just run `bash euler/run_e2e.sh` (starts the policy server, waits for `/healthz`, runs
+> the dual-Franka+Orca closed-loop eval, writes a rollout video). That harness bakes in the
+> Euler/Blackwell-specific fixes: drop `deepspeed` (training-only; crashes inference at import on a GPU
+> node), server in eager/torch-SDPA (`ENABLE_TENSORRT=True ATTENTION_BACKEND=torch`), stage
+> `DreamZero-AgiBot` to node-local NVMe (Lustre `mmap` of safetensors is ~8 MB/s → unusable), and for
+> Isaac: writable overlay, `TERM=xterm`, `--device cpu` (Isaac 4.5 ships torch cu118 with no Blackwell
+> sm_120 kernels — physics on CPU, RTX rendering stays on the GPU), and pass the ETH proxy into the
+> container for its online asset fetch. The guide below is the older training-focused setup.
+
 ### Euler GPU Hardware
 
 | GPU | VRAM | Fits 14B? | Notes |
