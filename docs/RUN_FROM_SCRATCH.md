@@ -1,5 +1,12 @@
 # DreamZero — Franka + Orca Bimanual: Run From Scratch (H100 / Lambda)
 
+> **On the ETH Euler cluster (RTX PRO 6000 Blackwell, Apptainer/SLURM)?** Use
+> [`../euler/README_EULER.md`](../euler/README_EULER.md) instead — `bash euler/run_e2e.sh` /
+> `sbatch euler/run_e2e.sbatch` bake in the Blackwell-specific fixes (`--device cpu`, torch-SDPA,
+> NVMe staging). This doc targets a bare-metal Lambda H100. For the sim joint-setup, scene objects,
+> physics-fidelity and collision details (any machine), see
+> [`SIM_VALIDATION_AND_SCENE.md`](SIM_VALIDATION_AND_SCENE.md).
+
 End-to-end runbook to stand up **DreamZero inference** and the **closed-loop Isaac Sim
 evaluation** for the `franka_orca_bimanual` embodiment on a fresh single-GPU box
 (validated on a Lambda **H100 PCIe 80 GB**, Ubuntu 22.04, driver `580.105.08`).

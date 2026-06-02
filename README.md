@@ -3,6 +3,13 @@
 
 DreamZero is a World Action Model that jointly predicts actions and videos, achieving strong zero-shot performance on unseen tasks. This release package contains everything needed to load a pretrained DreamZero model and run distributed inference via a WebSocket server.
 
+> ### 🤖 Franka + Orca bimanual (Isaac Sim closed-loop) — start here for this work
+> This fork adds a dual **Franka + Orca-hand** embodiment (`franka_orca_bimanual`, 48-dim) post-trained on the `bag_groceries` data, plus a validated closed-loop Isaac Sim eval. To reproduce / continue:
+> - **End-to-end setup → train → eval on Euler:** [`dreamzero_euler_complete_guide.md`](dreamzero_euler_complete_guide.md)
+> - **Closed-loop eval harness (server + Isaac, Blackwell RTX PRO 6000):** [`euler/README_EULER.md`](euler/README_EULER.md) — `bash euler/run_e2e.sh` (interactive) or `sbatch euler/run_e2e.sbatch`
+> - **Sim joint-setup / scene objects / physics-fidelity / collisions — what was validated and how:** [`docs/SIM_VALIDATION_AND_SCENE.md`](docs/SIM_VALIDATION_AND_SCENE.md); quick checker `sbatch euler/inspect_joints.sbatch`
+> - **Data conversion + new-embodiment guide:** [`docs/DATASET_TO_GEAR_AND_TRAIN.md`](docs/DATASET_TO_GEAR_AND_TRAIN.md)
+
 ## News
 
 - **02/27:** DreamZero is **#1 on both [MolmoSpaces]([https://huggingface.co/spaces/ai2-adapt/MolmoSpaces](https://molmospaces.allen.ai/leaderboard)) and [RoboArena]([https://robo-arena.github.io/](https://robo-arena.github.io/leaderboard))**! DreamZero-DROID is trained *from scratch* using only the DROID dataset — no pretraining on large-scale robot data, unlike competing VLAs. This demonstrates the strength of video-model backbones for generalist robot policies (VAMs/WAMs).

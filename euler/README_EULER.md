@@ -18,6 +18,21 @@ Two pieces run on a single GPU node and talk over `localhost:5000`:
 > `output/sim/2026-06-01/22-19-18/episode_0.mp4`. All the Blackwell/Euler-specific fixes below are
 > already baked into the scripts, so `run_e2e.sh` does this for you.
 
+> ## ✅ Sim scene + joint setup validated — 2026-06-02
+> Debugged the sim vs. training contract and the manipulation scene (details + how to reproduce in
+> [`../docs/SIM_VALIDATION_AND_SCENE.md`](../docs/SIM_VALIDATION_AND_SCENE.md)):
+> - **Joint setup** — action-term order, `use_default_offset`, and the Isaac hand-joint reorder were
+>   fixed so the 48-dim absolute action maps to the right joints (the server already returns absolute
+>   targets). Round-trip "hold current pose" drift ~0.03–0.08 rad.
+> - **Scene objects** — added `bag_groceries` stand-ins (paper bag + container + tube + round item).
+> - **Physics fidelity** — gave the Orca fingertip links valid inertia (0 PhysX warnings) and raised
+>   hand actuator gains so fingers track grasps.
+> - **Collisions** — the table is now a solid collider (was a visual-only ghost → objects/hands fell
+>   through), shifted forward so it doesn't interpenetrate the arm bases.
+> - **Camera** — `focal_length` 15→20 to frame the workspace like the training videos.
+> Quick check (any 24 GB+ GPU, ~5 min): `sbatch euler/inspect_joints.sbatch` → results in
+> `output/sim/joint_inspection.txt` + a rendered frame `output/sim/sim_oakd_frame.png`.
+
 ---
 
 ## TL;DR — run the test
@@ -46,6 +61,13 @@ Override the task / length:
 DZ_INSTRUCTION="pick up the cube" DZ_EPISODES=1 DZ_HORIZON=24 \
   bash /cluster/scratch/rjiang/dreamzero/euler/run_e2e.sh
 ```
+
+**Batch (non-interactive)** — same thing as a SLURM job, pinned to the Blackwell RTX PRO 6000:
+```bash
+sbatch euler/run_e2e.sbatch          # #SBATCH --gpus=nvidia_rtx_pro_6000:1 ; log: euler/logs/e2e.<jobid>.log
+```
+`gpumem:96g` alone can also land on a Hopper card; `--gpus=nvidia_rtx_pro_6000:1` forces Blackwell
+(nodes `eu-g7-*`). On Hopper/Ampere you can instead set `DZ_SIM_DEVICE=cuda` and drop the model pin.
 
 ---
 

@@ -1,5 +1,15 @@
 # Running Isaac Sim on Euler Cluster (RTX 4090)
 
+> ⚠️ **Scope / status:** this is an older note for **Isaac Sim scene-viewing only** (GUI/streaming)
+> on a 24 GB RTX 4090, with paths hardcoded to a previous user (`/cluster/scratch/ielminawi/...`,
+> container `isaaclab-bimanual-sandbox`) that are **not** valid on this account. A 4090 **cannot**
+> run the 14B policy server (needs ~45 GB). For the actual `franka_orca_bimanual` **closed-loop
+> eval** on Euler use [`../euler/README_EULER.md`](../euler/README_EULER.md) (96 GB Blackwell;
+> `bash euler/run_e2e.sh` / `sbatch euler/run_e2e.sbatch`, container `euler/isaac-sim.sif`), the
+> joint/scene checker `sbatch euler/inspect_joints.sbatch`, and the sim details in
+> [`SIM_VALIDATION_AND_SCENE.md`](SIM_VALIDATION_AND_SCENE.md). Replace the `ielminawi` paths with
+> your own `$SCRATCH` if you only want to view the scene.
+
 ## One-Time Setup
 
 Create persistent cache directories on scratch (only needed once):

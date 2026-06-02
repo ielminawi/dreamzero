@@ -303,6 +303,36 @@ def mirror_orca_hand_to_left(orca_root: ET.Element) -> ET.Element:
     return left
 
 
+def sanitize_inertials(robot: ET.Element, min_mass: float = 0.01,
+                       min_inertia: float = 1e-6) -> list[str]:
+    """Give zero-mass leaf links (Orca fingertips + hand root) a small valid
+    mass + diagonal inertia. PhysX flags mass=0 rigid bodies as having an invalid
+    inertia tensor and substitutes a bad default (negative mass), which makes the
+    hand dynamics unstable. The fixed base / flange (panda_link0/8) are left alone
+    (they are fixed-jointed, no inertia needed). Returns the names fixed."""
+    import re
+    target = re.compile(r"(fingertip|_root)$")
+    fixed = []
+    for link in robot.findall("link"):
+        name = link.get("name", "")
+        if not target.search(name):
+            continue
+        inert = link.find("inertial")
+        if inert is None:
+            continue
+        m = inert.find("mass")
+        I = inert.find("inertia")
+        if m is None or I is None or float(m.get("value", "0")) != 0.0:
+            continue
+        m.set("value", str(min_mass))
+        for a in ("ixx", "iyy", "izz"):
+            I.set(a, f"{min_inertia:.9f}")
+        for a in ("ixy", "ixz", "iyz"):
+            I.set(a, "0")
+        fixed.append(name)
+    return fixed
+
+
 def combine_franka_orca(franka_robot: ET.Element, orca_robot: ET.Element,
                          side: str, mount_rpy: str = "0 0 0",
                          mount_xyz: str = "0 0 0") -> ET.Element:
@@ -346,6 +376,12 @@ def combine_franka_orca(franka_robot: ET.Element, orca_robot: ET.Element,
     origin = ET.SubElement(mount_joint, "origin")
     origin.set("xyz", mount_xyz)
     origin.set("rpy", mount_rpy)
+
+    # Orca fingertip / root markers are massless; give them valid inertia so PhysX
+    # doesn't substitute a bad default (see sanitize_inertials).
+    fixed = sanitize_inertials(combined)
+    if fixed:
+        print(f"  [{side}] sanitized zero-mass links: {fixed}")
 
     return combined
 

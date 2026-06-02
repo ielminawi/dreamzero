@@ -7,6 +7,11 @@
 > Isaac: writable overlay, `TERM=xterm`, `--device cpu` (Isaac 4.5 ships torch cu118 with no Blackwell
 > sm_120 kernels — physics on CPU, RTX rendering stays on the GPU), and pass the ETH proxy into the
 > container for its online asset fetch. The guide below is the older training-focused setup.
+>
+> **Sim scene / joint setup / collisions:** the dual-Franka+Orca Isaac scene (joint ordering vs
+> training, absolute-action handling, `bag_groceries` objects, physics-fidelity and table
+> collisions) was debugged and validated — see [`docs/SIM_VALIDATION_AND_SCENE.md`](docs/SIM_VALIDATION_AND_SCENE.md)
+> and the quick checker `sbatch euler/inspect_joints.sbatch`.
 
 ### Euler GPU Hardware
 
@@ -130,7 +135,8 @@ python scripts/data/convert_h5_to_lerobot.py \
     --output-dir /cluster/scratch/rjiang/dreamzero/data/franka_orca_lerobot \
     --fps 50 \
     --task "bimanual manipulation" \
-    --num-workers 1
+    --num-workers 1 \
+    --target-resolution 640x480 
 
 python scripts/data/convert_lerobot_to_gear.py \
     --dataset-path /cluster/scratch/rjiang/dreamzero/data/franka_orca_lerobot \
@@ -138,7 +144,7 @@ python scripts/data/convert_lerobot_to_gear.py \
     --state-keys '{"left_arm_joint_pos": [0, 7], "right_arm_joint_pos": [7, 14], "left_hand_joint_pos": [14, 31], "right_hand_joint_pos": [31, 48]}' \
     --action-keys '{"left_arm_joint_pos": [0, 7], "right_arm_joint_pos": [7, 14], "left_hand_joint_pos": [14, 31], "right_hand_joint_pos": [31, 48]}' \
     --relative-action-keys left_arm_joint_pos right_arm_joint_pos left_hand_joint_pos right_hand_joint_pos \
-    --action-horizon 48
+    --action-horizon 24
 
 ## Step 6: Create the SLURM Batch Script
 
@@ -234,7 +240,7 @@ States:
       --action-keys '{"left_arm_joint_pos": [0, 7], "right_arm_joint_pos": [7, 14], "left_hand_joint_pos": [14, 31],
   "right_hand_joint_pos": [31, 48]}' \
       --relative-action-keys left_arm_joint_pos right_arm_joint_pos left_hand_joint_pos right_hand_joint_pos \
-      --task-key annotation.task --action-horizon 48 --force
+      --task-key annotation.task --action-horizon 24 --force
 
   Verify the conversion:
   ls ~/Dreamzero/data/franka_orca_lerobot/meta/

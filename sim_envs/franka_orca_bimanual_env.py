@@ -20,7 +20,17 @@ from sim_envs.franka_orca_bimanual_cfg import FrankaOrcaBimanualEnvCfg
 
 
 class FrankaOrcaBimanualEnv(ManagerBasedEnv):
-    """Dual Franka + Orca bimanual manipulation environment."""
+    """Dual Franka + Orca bimanual manipulation environment.
+
+    NOTE on the live action/observation path: this subclasses ``ManagerBasedEnv``, whose
+    ``step()`` drives actions through the **ActionManager** (the ``ActionsCfg`` terms in
+    franka_orca_bimanual_cfg.py) and builds observations via the **ObservationManager**
+    (the ``ObservationsCfg`` terms). The DirectRLEnv-style methods below
+    (``_apply_action`` / ``_get_observations`` / ``_get_rewards``) are therefore
+    NOT called at runtime — they are vestigial. The real action/observation contract
+    (joint order, absolute targets, term order) lives in the cfg. Validated with
+    eval_utils/inspect_joints.py.
+    """
 
     cfg: FrankaOrcaBimanualEnvCfg
 
@@ -39,7 +49,15 @@ class FrankaOrcaBimanualEnv(ManagerBasedEnv):
         super().__init__(cfg, **kwargs)
         self.max_episode_length = int(cfg.episode_length_s / cfg.sim.dt)
         self._step_count = 0
-        self._relative_actions = True  # Match training config
+        # The policy was trained with relative actions (deltas vs the chunk-start
+        # state), BUT the inference server already reconstructs ABSOLUTE joint
+        # targets: GrootSimPolicy.unapply() adds the observation state back to the
+        # model's denormalized delta (groot/.../sim_policy.py:573, fired because the
+        # checkpoint conf has relative_action=true). So the 48-dim action arriving
+        # here is already an absolute joint-position target. Adding the current
+        # joint_pos again would double-count the state (target ~= 2*state + delta)
+        # and make the arms run away. Apply the action as an absolute target.
+        self._relative_actions = False
 
     def _apply_action(self, action: torch.Tensor) -> None:
         """Apply 48-dim action to both arm+hand articulations.

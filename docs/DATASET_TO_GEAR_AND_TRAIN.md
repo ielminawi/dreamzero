@@ -56,6 +56,15 @@ python scripts/data/convert_lerobot_to_gear.py \
 
 `--state-keys` and `--action-keys` tell the converter how to split a packed vector column into named sub-keys. The JSON maps sub-key name → `[start_index, end_index]`. Omit these flags to let the converter auto-detect.
 
+> **If you start from per-episode HDF5** (like `franka_orca_bimanual` from `bag_groceries`), first run
+> `scripts/data/convert_h5_to_lerobot.py` to produce the LeRobot v2 dataset. **Pass
+> `--target-resolution WxH` whenever your cameras have different native resolutions** (e.g. aria
+> 640×480 vs oak-d 960×540) — the groot `VideoCrop` transform requires all camera views to share one
+> resolution and asserts it at train *and* eval time, so a mismatch crashes there. Keep
+> `--action-horizon` (on `convert_lerobot_to_gear.py`) equal to the training `action_horizon`
+> (24 for franka_orca) — it sets the window for the relative-action stats. The complete franka_orca
+> two-step conversion is in [`../dreamzero_euler_complete_guide.md`](../dreamzero_euler_complete_guide.md).
+
 ### Arguments
 
 | Argument | Default | Description |
@@ -467,5 +476,8 @@ DATA_ROOT=/path/to/your_dataset OUTPUT_DIR=./checkpoints/run1 NUM_GPUS=4 \
 | `oxe_droid` | `droid_relative.yaml` | 3 cameras, joint_position + gripper_position |
 | `agibot` | `agibot_relative.yaml` | 3 cameras, 6 state keys, 7 action keys |
 | `yam` | `yam_relative.yaml` | 3 cameras (top/left/right), bimanual left/right joint_pos + gripper_pos |
+| `franka_orca_bimanual` | `franka_orca_relative.yaml` | 2 cameras (aria_rgb_cam/oakd_front_view), bimanual 48-dim = left_arm(7)+right_arm(7)+left_hand(17)+right_hand(17) |
 
-Use these as concrete examples when building your own config.
+Use these as concrete examples when building your own config. For `franka_orca_bimanual`, the
+closed-loop Isaac eval and the sim joint-setup/scene/collision details are in
+[`SIM_VALIDATION_AND_SCENE.md`](SIM_VALIDATION_AND_SCENE.md) and [`../euler/README_EULER.md`](../euler/README_EULER.md).

@@ -2,6 +2,12 @@
 
 Step-by-step guide to run closed-loop DreamZero inference with Isaac Sim on a Lambda Cloud GH200 instance, with remote Omniverse Streaming.
 
+> **Deployment note:** this is the **docker-compose on a Lambda GH200 (Grace Hopper)** path. For the
+> ETH **Euler / Apptainer / Blackwell** path use [`../euler/README_EULER.md`](../euler/README_EULER.md);
+> for a bare-metal **H100** box use [`RUN_FROM_SCRATCH.md`](RUN_FROM_SCRATCH.md). The sim joint-setup,
+> scene objects, fidelity and collision details (machine-independent) are in
+> [`SIM_VALIDATION_AND_SCENE.md`](SIM_VALIDATION_AND_SCENE.md).
+
 ## Architecture
 
 ```
@@ -15,7 +21,7 @@ Step-by-step guide to run closed-loop DreamZero inference with Isaac Sim on a La
 │  │ ~55-65GB VRAM        │      │ Omniverse Streaming :8211  │──┼──► Your laptop
 │  └─────────────────────┘      └───────────────────────────┘  │
 │                                                               │
-│  GPU: 1x H100 96GB HBM3  │  CPU: 72 Arm Neoverse cores      │
+│  GPU: 1x GH200 96GB HBM3 │  CPU: 72 Arm Neoverse cores      │
 │  RAM: 480GB unified       │  ~$3.49/hr                       │
 └───────────────────────────────────────────────────────────────┘
 ```
@@ -64,7 +70,7 @@ mkdir -p checkpoints
 
 pip install "huggingface_hub[cli]"
 
-# 1. Wan2.1-I2V-14B-480P backbone (~28GB)
+# 1. Wan2.1-I2V-14B-480P backbone (full repo ~66-77GB: DiT + VAE + T5 + CLIP)
 hf download Wan-AI/Wan2.1-I2V-14B-480P \
     --local-dir checkpoints/Wan2.1-I2V-14B-480P
 
@@ -92,7 +98,7 @@ ls checkpoints/
 # Should show: DreamZero-AgiBot  dreamzero_franka_orca_lora  umt5-xxl  Wan2.1-I2V-14B-480P
 
 ls checkpoints/dreamzero_franka_orca_lora/
-# Should show: experiment_cfg/  config.json  pytorch_model.bin  adapter_config.json (or similar)
+# Should show: experiment_cfg/  config.json  model.safetensors
 ```
 
 **Disk space needed**: ~100GB total for all checkpoints.
