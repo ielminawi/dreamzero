@@ -249,27 +249,14 @@ def mirror_orca_hand_to_left(orca_root: ET.Element) -> ET.Element:
                 parts[2] = -parts[2]
                 origin.set("rpy", f"{parts[0]} {parts[1]} {parts[2]}")
 
-        axis = joint.find("axis")
-        if axis is not None:
-            xyz = axis.get("xyz", "0 0 0")
-            parts = [float(x) for x in xyz.split()]
-            if len(parts) == 3:
-                parts[0] = -parts[0]  # Negate x-axis component
-                axis.set("xyz", f"{parts[0]} {parts[1]} {parts[2]}")
-
-        # Swap joint limits for mirrored joints where axis is negated
-        limit = joint.find("limit")
-        if limit is not None and axis is not None:
-            ax_parts = [float(x) for x in axis.get("xyz", "0 0 0").split()]
-            # If the primary axis was negated, swap and negate limits
-            orig_axis = joint.find("axis")
-            lower = limit.get("lower")
-            upper = limit.get("upper")
-            if lower and upper:
-                l, u = float(lower), float(upper)
-                # Only swap if the axis direction was fully reversed
-                # (simple heuristic: if original had positive x, now negative)
-                # We keep limits as-is since the axis reversal handles direction
+        # NOTE: do NOT negate the joint axis. The real Orca left hand uses the SAME
+        # per-joint rotation convention as the right (recorded teleop/state confirm
+        # "flex = positive" on both hands). Finger joints have axes in the Y/Z plane
+        # (x=0), so negating x is a no-op for them; the only nonzero-x axis is the wrist,
+        # and negating it INVERTED the left wrist (a positive command rotated it the
+        # wrong way) with an un-swapped limit range. Keeping the axis as-is matches the
+        # recorded data. The link FRAME mirroring (origin x, rpy y/z, mesh scale -1)
+        # below still produces the correct mirrored left-hand geometry.
 
     # Mirror link inertial origins (negate x)
     for link in left.iter("link"):

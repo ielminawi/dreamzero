@@ -72,6 +72,18 @@ the videos).
 Refinement ideas (not yet done): model the bag as an open-top container; tune placement to the
 camera projection; swap primitives for real meshes.
 
+### Hand grasping (fixed)
+
+The hand couldn't grip — **no friction was set**, so fingers/objects used PhysX's low default and
+anything "grasped" slipped out. Fix: a high-friction material `_GRIP_MAT`
+(`RigidBodyMaterialCfg(static_friction=1.5, dynamic_friction=1.2, friction_combine_mode="max")`) on
+the objects + table. The `max` combine makes the object's friction govern the finger contact even
+though the URDF-imported fingers keep the default material (so no need to set a material on the
+articulation). Verified with `eval_utils/grasp_test.py` (+ `euler/grasp_test.sbatch`): the hand
+closes on the sphere, holds it under gravity, and **lifts it** (object rises ~18 cm with the hand,
+staying ~1.7 cm from the hand) → `GRASP WORKS`. (Fingertip links still lack collision — power grasps
+work via the phalanges; add fingertip colliders if precise pinch grasps are needed.)
+
 ### Table collision (fixed)
 
 The table `CuboidCfg` originally had **no `collision_props`** — it was a visual-only ghost, so
@@ -95,16 +107,133 @@ tuned by matching the rendered frame to the training frame. Now the workspace + 
 objects fill the frame, both arms stay in view, and the floor grid / base links are cropped. (24
 over‑zoomed to a single hand; 20 is the balance.)
 
-Remaining gap (not fixed — needs data we don't have):
-- The sim camera **pose is hand‑tuned**, not derived from calibration: `_OAKD_EYE = _ARIA_EYE =
-  (-0.25, 0, 0.45)`, `_WORKSPACE_TARGET = (0.35, 0, 0.15)`. `configs/franka_orca_calibration.json`
-  has camera→base **extrinsics** only (no intrinsics), and the cfg doesn't use them. The sim
-  perspective is more level than the training top‑down view.
-- Background is the Isaac grid/void vs the training room (brick wall, floor).
+**Camera viewpoints (matched to the training frames):**
+- **oak-d** (front external): the training view looks **down** at the table (~50°, object tops
+  visible). Gave oak-d its own top-down pose `_OAKD_EYE=(-0.05,0,0.60) → _OAKD_TARGET=(0.40,0,0.06)`
+  and `focal_length=20` (~55° HFOV). Validated vs `output/sim_vs_train_oakd*.png`.
+- **aria** (egocentric Aria glasses): wide FOV — `focal_length=8` (~105°) so the whole table + both
+  hands fill the view like `output/bg_aria_ref.png` (the shared focal=20 was far too narrow).
+- **Backdrop:** visual-only warm floor + beige back wall replace the black-grid void (no
+  `collision_props` so they can't hang PhysX on the arm bases).
 
-To fully close it: derive each camera's world pose from the calibration extrinsics (compose with
-the arm‑base world transforms; mind the optical‑frame convention), obtain the real oak‑d / Aria
-intrinsics to set the exact HFOV, and add a simple room backdrop.
+**Why not use the calibration extrinsics directly?** `configs/franka_orca_calibration.json` has
+camera→base extrinsics (`left_cam`/`right_cam`) but **no intrinsics**, and deriving world poses from
+them is inconclusive: under the obvious conventions the cameras end up looking at the *sides*
+(y≈−0.55 / +0.69), not the centered workspace the training frames show — the base-reference frame
+and the camera↔sim mapping are ambiguous (the Aria stereo "left/right_cam" likely aren't the
+sim RGB/oak-d cameras). So hand-tuning to the observed training frames is the reliable approach.
+
+## Pre-retrain checklist (before retraining with background removed)
+
+Plan: remove the background from the training videos in preprocessing + retrain so the policy is
+background-invariant. Things to get right *before* spending the retrain (the LeRobot dataset is not
+on disk, so conversion will be re-run — apply all of this there). Dataset = `bag_groceries`,
+**300 episodes**, both cameras present, T≈1.6k–5.4k.
+
+1. **Background removal must be applied IDENTICALLY at sim inference.** Whatever you mask/replace
+   the background with in training (e.g. fill with a constant black/gray), the sim must feed the
+   policy the *same* thing — either render the sim with that constant background, or mask the sim
+   camera frames before sending to the server. Otherwise the train↔inference gap just moves from
+   "real room vs sim room" to "masked vs unmasked." Decide the foreground/background **boundary**
+   (does "foreground" include the table, or only arms+objects?) and apply it the same way in both.
+   Note: sim segmentation is *perfect* (renderer ground-truth masks) while real segmentation has
+   artifacts — consider matching that (feather/�උdegrade sim masks) so mask quality isn't itself OOD.
+
+2. **Normalize the arm joint convention in preprocessing (removes the inference remap).** The data's
+   `joint4` is ~+0.9 (not the standard Franka `[-3.07,-0.07]`) and `joint6` is offset; inference
+   currently remaps `j4-=π, j6+=π` (`real_arm_to_sim`/`sim_arm_to_real`, verified). Cleaner: convert
+   the recorded arm joints to the sim/standard Franka convention *in preprocessing* so data, sim
+   state, and policy all share ONE convention (no inference remap, cleaner proprioception).
+   **Watch the outliers:** ~4 episodes have `j4` dipping to −0.65…−0.70 and several have low-positive
+   mins — these don't fit a clean ±π offset (would push `j4` past the Franka limit), so verify the
+   per-joint transform across the dataset and **unwrap/clip to the physical Franka range** rather
+   than assuming a constant offset.
+
+3. **Foreground appearance gap remains.** Removing the background fixes the *biggest* visual
+   difference, but the foreground is still OOD: sim Franka+Orca render (white/gray arms, gray hands)
+   vs real arms/black Orca hands, and **primitive box/sphere objects vs real textured groceries**.
+   Background removal helps a lot but won't fully close it — set expectations, and consider whether
+   to also standardize the foreground or improve object/arm appearance.
+
+4. **Keep the action/camera pipeline consistent on the re-conversion:**
+   - `convert_h5_to_lerobot.py --target-resolution 640x480` (cameras must share one resolution for
+     `VideoCrop`).
+   - `convert_lerobot_to_gear.py --action-horizon 24` (match training `action_horizon`; it sets the
+     relative-stats window) — regenerate `relative_stats_dreamzero.json` with horizon 24.
+   - **Camera order** `[aria_rgb_cam, oakd_front_view]` must match between training and inference
+     (the README warns view-order misalignment kills transfer); the 2-view → 2×2 grid (2 black
+     quadrants) in `DreamTransform` is fine as long as train==eval.
+   - Reconcile `max_state_dim` (YAML default 64 vs launch-script override 48 → set 48).
+
+5. **Idle-frame filtering / data hygiene.** Episodes are long (40–110 s); the DROID pipeline filters
+   idle frames but `convert_h5_to_lerobot.py` keeps all frames — idle start/end segments dilute
+   training. Consider idle filtering. Also exclude `object_in_bowl` (mono-arm, different embodiment).
+
+6. **Camera viewpoint/FOV** still matters even with background removed (it sets where arms/objects
+   land in-frame): sim uses top-down oak-d + wide aria approximations; the real intrinsics aren't in
+   the calibration file. If you can get the real oak-d/Aria intrinsics+extrinsics, set them exactly.
+
+## Status & the remaining gap (why the policy still doesn't do the task)
+
+After all of the above, a logged closed-loop e2e shows the policy now gets **in-distribution
+proprioception** (`state nonzero=48/48`, arm convention remapped; state range ~[−1.2,+1.7] vs the
+pre-remap −3.07) and an **in-distribution viewpoint** (top-down oak-d), and the **arms reach toward
+the objects** — but it still **drifts** and doesn't complete the bagging task.
+
+The remaining wall is the **appearance domain gap**, which is asset-limited:
+- Objects are primitive boxes/cylinders/sphere vs a real **textured paper bag + grocery items**.
+- The table is a flat color vs **wood**; the room is plain beige vs the real **brick** room.
+- No real camera **intrinsics**, so FOV/poses are best-effort approximations.
+
+A video-world-model trained on real RGB will not zero-shot transfer into an abstract sim no matter
+how good the *geometry* is. To actually make the policy perform, you need one of:
+1. **Real assets / a digital twin** — USD meshes + textures for the bag and grocery items, the real
+   room, and the real oak-d/Aria intrinsics + a clear extrinsics→world mapping.
+2. **Policy adaptation** — fine-tune (or LoRA) the policy on sim renders, or train with domain
+   randomization, so it tolerates the sim appearance.
+
+Everything mechanical (joint setup, conventions, collisions, fidelity) is fixed and verified — those
+were the in-scope, data-grounded bugs. The appearance gap is a separate, resource-dependent effort.
+
+## Policy closed-loop debugging (2026-06-03) — why the policy doesn't do the task
+
+After the mechanics were validated, the closed-loop policy still produced slow/aimless motion. The
+investigation (open-loop replay + 2 analysis agents + server action logging + a logged e2e):
+
+**Mechanics are correct — the failure is the policy seeing out-of-distribution input.**
+- **Open-loop replay** of the recorded `bag_groceries` actions (`eval_utils/replay_h5.py`)
+  reproduces the demonstrated *hand* motion; the hand tracks commanded joints to **<0.1 rad**.
+- **`left_wrist` was inverted** (the URDF mirror negated its axis: `−1 0 0`) → **fixed** to `1 0 0`
+  in the left URDF + `generate_combined_urdf.py` (axis‑x negation removed; it only affected the
+  wrist since finger axes are in the Y/Z plane). **Hands confirmed NOT twisted** — fingers curl
+  inward to grasp and left/right are mirror‑symmetric (`eval_utils/show_hands.py` →
+  `output/hands_zoom.png`).
+- **Server action logging** (added in `socket_test_optimized_AR.py` `infer`, prints `[ACTION]` to
+  `euler/logs/server.log`): policy receives `state nonzero=48/48`, sane magnitudes, but per‑chunk
+  arm motion is tiny (`horizon_spread` ~0.03–0.06) with a joint pinned at a limit and the left hand
+  clenched → **out‑of‑distribution behavior**, not a code/scale bug.
+
+### ⚠️ Open critical issue: arm joint-convention mismatch (sim ≠ training)
+
+The training/real `qpos_arm` uses a **different Franka joint convention** than the sim URDF:
+
+| joint | real/training range | sim Franka limit | inferred map `sim = f(real)` |
+|---|---|---|---|
+| j1,j2,j3,j5,j7 | within limits | wide | identity |
+| **j4** | +0.81…+1.00 | [−3.07, −0.07] | **sim = real − π** |
+| **j6** | −0.43…+0.14 | [−0.02, +3.75] | **sim = real + π** |
+
+So the sim hands the policy proprioceptive **state in the wrong convention** (the policy never saw
+`joint4` negative in training) **and** can't reach the demo arm poses (`joint4` clamps). This is
+likely a bigger driver of the failure than the visual gap. The ±π offsets on j4/j6 are a known
+Franka URDF/DH convention difference and are self‑consistent across 14k frames + the sim home pose
+(home j4=−2.81↔real +0.33, j6=3.04≈π↔real −0.10, next to the demo distribution). Inferred from data
+ranges; **must be verified by replaying the remapped actions** (arms should reach demo poses, not
+clamp).
+
+**Fix (apply the remap):** send the policy `state = f⁻¹(sim_qpos)` (j4 += π, j6 −= π) and apply the
+returned action via `sim = f(action)` (j4 −= π, j6 += π) for the arm joints — in the eval client
+(`run_sim_eval_bimanual.py`) or the env. Then re-run the e2e.
 
 ## Validation tooling (reusable)
 
@@ -114,8 +243,14 @@ intrinsics to set the exact HFOV, and add a simple room backdrop.
   track), object resting check, and saves a sim camera frame to `output/sim/sim_oakd_frame.png`.
   Writes results to `output/sim/joint_inspection.txt` (Isaac captures stdout, so it writes to a
   bound file).
+- `eval_utils/replay_h5.py` + `euler/replay_h5.sbatch` — open-loop replay of recorded h5 actions in
+  the sim (no policy server). Logs commanded-vs-achieved joint tracking + writes a rollout video.
+  The definitive mechanics test (isolates joints/fingers from the policy + domain gap).
+- `eval_utils/show_hands.py` + `euler/show_hands.sbatch` — render the hands open vs grasp from the
+  home pose to visually confirm fingers/wrist aren't twisted (`output/hands_zoom.png`).
 - `euler/run_e2e.sbatch` — full closed-loop e2e on a Blackwell RTX PRO 6000
-  (`--gpus=nvidia_rtx_pro_6000:1`). Wraps `euler/run_e2e.sh`.
+  (`--gpus=nvidia_rtx_pro_6000:1`). Wraps `euler/run_e2e.sh`. The server prints `[ACTION]` policy
+  output stats to `euler/logs/server.log` (see them with `grep '\[ACTION\]'`).
 
 ### Reproduce
 

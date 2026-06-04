@@ -329,11 +329,32 @@ class ARDroidRoboarenaPolicy:
                 action_dict[k] = getattr(action_chunk_dict, k)
         
         action = self._convert_action(action_dict)
-        
+
+        # --- DEBUG: log the returned action so we can tell a sane trajectory from a
+        # collapsed/near-static one (franka_orca_bimanual is 48-dim absolute targets).
+        try:
+            if self._embodiment == "franka_orca_bimanual":
+                import numpy as _np
+                a = _np.asarray(action)                      # (N, 48) absolute targets
+                fs = obs.get("observation/full_state")
+                fs = _np.asarray(fs).reshape(-1)[:48] if fs is not None else None
+                grp = {"L_arm": (0, 7), "R_arm": (7, 14), "L_hand": (14, 31), "R_hand": (31, 48)}
+                msg = [f"[ACTION] chunk shape={a.shape}"]
+                for g, (lo, hi) in grp.items():
+                    seg = a[:, lo:hi]
+                    # spread across the horizon (how much the target moves over the chunk)
+                    hspread = float(_np.abs(seg[-1] - seg[0]).max()) if seg.shape[0] > 1 else 0.0
+                    msg.append(f"{g}: min={seg.min():+.2f} max={seg.max():+.2f} horizon_spread={hspread:.3f}")
+                if fs is not None:
+                    msg.append(f"state|min={fs.min():+.2f} max={fs.max():+.2f} nonzero={int((_np.abs(fs)>1e-6).sum())}/48")
+                print("  " + " | ".join(msg), flush=True)
+        except Exception as _e:
+            print(f"[ACTION-LOG error] {_e}", flush=True)
+
         # Update first call flag
         if self._is_first_call:
             self._is_first_call = False
-        
+
         return action
     
     def _reset_state(self, save_video: bool = True) -> None:

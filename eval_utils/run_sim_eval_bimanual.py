@@ -53,7 +53,9 @@ for ext_name in ["isaacsim.asset.importer.urdf", "omni.importer.urdf", "omni.isa
         break
 
 import sim_envs  # noqa: F401 — registers the gym environment
-from sim_envs.franka_orca_bimanual_cfg import FrankaOrcaBimanualEnvCfg
+from sim_envs.franka_orca_bimanual_cfg import (
+    FrankaOrcaBimanualEnvCfg, real_arm_to_sim, sim_arm_to_real,
+)
 from sim_envs.franka_orca_bimanual_env import FrankaOrcaBimanualEnv
 from eval_utils.policy_client import WebsocketClientPolicy
 
@@ -151,8 +153,13 @@ class DreamZeroBimanualClient:
             assert len(actions.shape) == 2, f"Expected 2D array, got shape {actions.shape}"
             self.pred_action_chunk = actions
 
-        action = self.pred_action_chunk[self.actions_from_chunk_completed]
+        action = np.asarray(self.pred_action_chunk[self.actions_from_chunk_completed]).copy()
         self.actions_from_chunk_completed += 1
+
+        # The policy returns absolute targets in the training/real arm convention; map the arm
+        # joints back to the sim Franka convention before applying (inverse of the state remap).
+        action[0:7] = real_arm_to_sim(action[0:7])
+        action[7:14] = real_arm_to_sim(action[7:14])
 
         # Build visualization
         aria_viz = cv2.resize(curr_obs["aria_rgb_cam"], (320, 240))
@@ -169,13 +176,19 @@ class DreamZeroBimanualClient:
         aria_rgb = policy["aria_rgb_cam"][0].clone().detach().cpu().numpy()
         oakd_front = policy["oakd_front_view"][0].clone().detach().cpu().numpy()
 
-        # Proprioception: concatenate to 48-dim state vector
-        left_arm = policy["left_arm_joint_pos"][0].clone().detach().cpu().numpy()    # (7,)
-        right_arm = policy["right_arm_joint_pos"][0].clone().detach().cpu().numpy()   # (7,)
+        # Proprioception: concatenate to 48-dim state vector.
+        left_arm = policy["left_arm_joint_pos"][0].clone().detach().cpu().numpy()    # (7,) sim conv
+        right_arm = policy["right_arm_joint_pos"][0].clone().detach().cpu().numpy()   # (7,) sim conv
         left_hand = policy["left_hand_joint_pos"][0].clone().detach().cpu().numpy()   # (17,)
         right_hand = policy["right_hand_joint_pos"][0].clone().detach().cpu().numpy() # (17,)
 
-        state = np.concatenate([left_arm, right_arm, left_hand, right_hand])  # (48,)
+        # Map arm joints from the sim Franka convention to the training/real convention so the
+        # policy receives in-distribution proprioception (sim joint4 is negative but the policy
+        # was trained on joint4 ~+0.9; j6 offset too). See docs/SIM_VALIDATION_AND_SCENE.md.
+        left_arm = sim_arm_to_real(left_arm)
+        right_arm = sim_arm_to_real(right_arm)
+
+        state = np.concatenate([left_arm, right_arm, left_hand, right_hand])  # (48,) real conv
 
         return {
             "aria_rgb_cam": aria_rgb,

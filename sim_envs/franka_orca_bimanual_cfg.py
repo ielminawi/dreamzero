@@ -64,8 +64,13 @@ def _look_at_quat(eye, target, up=(0.0, 0.0, 1.0)):
 # Calibration gives camera pos relative to arm base; Y axis is flipped in calib.
 # Camera Y = 0 (centered between arms), Z ≈ 0.45 from calibration.
 _ARIA_EYE = (-0.25, 0.0, 0.45)
-_OAKD_EYE = (-0.25, 0.0, 0.45)
 _WORKSPACE_TARGET = (0.35, 0.0, 0.15)
+# oak-d front view: the real recording looks DOWN at the table (~50deg below horizontal,
+# seeing the tops of the objects), whereas a level camera (~27deg) sees them from the side
+# and the table recedes to a horizon. Use a higher eye + lower target for a top-down view
+# matching the training frame (tuned vs output/sim_vs_train_oakd*.png).
+_OAKD_EYE = (-0.05, 0.0, 0.60)
+_OAKD_TARGET = (0.40, 0.0, 0.06)
 
 # Arm separation from calibration: ~61cm apart on Y-axis
 ARM_SEPARATION_Y = 0.6127
@@ -75,10 +80,47 @@ ARM_SEPARATION_Y = 0.6127
 # attribute as a scene asset and would reject a bare float).
 _TABLE_TOP = 0.05
 
+# High-friction material so the Orca fingers can actually GRIP objects. With no material,
+# PhysX uses a low default and grasped objects slip out. Applied to the objects + table, and
+# as the sim default material (so the URDF-imported finger collision shapes get it too).
+_GRIP_MAT = sim_utils.RigidBodyMaterialCfg(
+    static_friction=1.5, dynamic_friction=1.2, restitution=0.0,
+    # "max" combine => the contact friction is the higher of the two materials, so the
+    # object's high friction dominates even though the URDF-imported fingers keep the
+    # default material. This is what makes the grip hold without slipping.
+    friction_combine_mode="max",
+)
+
 # Paths to combined URDFs
 _ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 LEFT_URDF = os.path.join(_ASSETS_DIR, "franka_orca_left.urdf")
 RIGHT_URDF = os.path.join(_ASSETS_DIR, "franka_orca_right.urdf")
+
+# ---------------------------------------------------------------------------
+# Arm joint-convention remap (sim Franka URDF  <->  training/real data convention)
+# The recorded teleop/training qpos use a different Franka convention than the standard
+# sim URDF: real joint4 is POSITIVE (~+0.9) but the sim panda_joint4 limit is [-3.07,-0.07],
+# and joint6 is offset too. Inferred (from 14k frames + home-pose consistency) as +/- pi
+# offsets on j4 and j6 (a known Franka URDF/DH convention difference):
+#     sim = real + ARM_SIM_FROM_REAL   (per arm joint, training order j1..j7)
+# Use real_arm_to_sim() before applying a real-convention action to the sim, and
+# sim_arm_to_real() before sending sim proprioception to the policy. See
+# docs/SIM_VALIDATION_AND_SCENE.md. (Verify by replaying remapped recorded actions.)
+import math as _math
+ARM_SIM_FROM_REAL = [0.0, 0.0, 0.0, -_math.pi, 0.0, +_math.pi, 0.0]
+
+
+def real_arm_to_sim(arm7):
+    """Map a 7-DOF arm vector from training/real convention to sim URDF convention."""
+    import numpy as _np
+    return _np.asarray(arm7) + _np.asarray(ARM_SIM_FROM_REAL)
+
+
+def sim_arm_to_real(arm7):
+    """Map a 7-DOF arm vector from sim URDF convention to training/real convention."""
+    import numpy as _np
+    return _np.asarray(arm7) - _np.asarray(ARM_SIM_FROM_REAL)
+
 
 # Joint name expressions for actuator config (regex — order irrelevant, only assigns gains)
 FRANKA_ARM_JOINTS = "panda_joint[1-7]"
@@ -143,10 +185,32 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
         ),
     )
 
-    # Ground plane
+    # Ground plane (physics collision only; its grid look is hidden by the floor below)
     ground = AssetBaseCfg(
         prim_path="/World/ground",
         spawn=sim_utils.GroundPlaneCfg(),
+    )
+
+    # ---- Room backdrop (reduce the visual domain gap) ----
+    # The policy is a video world-model trained on real RGB of a real room; the default
+    # Isaac black-grid void is strongly out-of-distribution. These are VISUAL-ONLY (no
+    # collision_props) so they can't interpenetrate the arm bases / hang PhysX; the
+    # GroundPlaneCfg above still provides the physics floor. Neutral indoor colors.
+    floor_visual = AssetBaseCfg(
+        prim_path="/World/Backdrop/Floor",
+        spawn=sim_utils.CuboidCfg(
+            size=(8.0, 8.0, 0.02),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.52, 0.47, 0.42), roughness=0.95),
+        ),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(1.0, 0.0, -0.011)),
+    )
+    back_wall = AssetBaseCfg(
+        prim_path="/World/Backdrop/BackWall",
+        spawn=sim_utils.CuboidCfg(
+            size=(0.1, 6.0, 2.5),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.70, 0.67, 0.61), roughness=0.95),
+        ),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(1.5, 0.0, 1.2)),
     )
 
     # Table (simple cuboid stand-in; swap for USD mesh once Nucleus is available).
@@ -162,6 +226,7 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
         spawn=sim_utils.CuboidCfg(
             size=(0.9, 0.8, 0.05),
             collision_props=sim_utils.CollisionPropertiesCfg(),
+            physics_material=_GRIP_MAT,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.4, 0.2), roughness=1.0),
         ),
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0.6, 0.0, 0.025)),
@@ -181,6 +246,7 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             rigid_props=sim_utils.RigidBodyPropertiesCfg(),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.15),
             collision_props=sim_utils.CollisionPropertiesCfg(),
+            physics_material=_GRIP_MAT,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.90, 0.90, 0.86), roughness=0.9),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.32, 0.12, _TABLE_TOP + 0.095)),
@@ -193,6 +259,7 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             rigid_props=sim_utils.RigidBodyPropertiesCfg(),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.08),
             collision_props=sim_utils.CollisionPropertiesCfg(),
+            physics_material=_GRIP_MAT,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.95, 0.95, 0.95), roughness=0.6),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, -0.02, _TABLE_TOP + 0.0225)),
@@ -206,6 +273,7 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             rigid_props=sim_utils.RigidBodyPropertiesCfg(),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.04),
             collision_props=sim_utils.CollisionPropertiesCfg(),
+            physics_material=_GRIP_MAT,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.15, 0.35, 0.85), roughness=0.5),
         ),
         # lay the cylinder on its side (rotate 90deg about X so its axis is along Y)
@@ -221,6 +289,7 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             rigid_props=sim_utils.RigidBodyPropertiesCfg(),
             mass_props=sim_utils.MassPropertiesCfg(mass=0.05),
             collision_props=sim_utils.CollisionPropertiesCfg(),
+            physics_material=_GRIP_MAT,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.45, 0.65, 0.20), roughness=0.7),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.38, -0.11, _TABLE_TOP + 0.026)),
@@ -326,12 +395,11 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
         height=480,
         width=640,
         spawn=sim_utils.PinholeCameraCfg(
-            # focal_length raised 15->20 (HFOV ~70deg -> ~55deg) to tighten the framing
-            # toward the real cameras: crops the Isaac floor grid + Franka base links at
-            # the edges and enlarges the workspace/objects, while still keeping BOTH arms
-            # in view. Tuned by matching a rendered frame to the training video
-            # (output/sim_vs_train_oakd*.png). (focal=24 over-zoomed to a single hand.)
-            focal_length=20.0,
+            # aria_rgb_cam is an Aria glasses (egocentric) RGB camera — a WIDE FOV (~100-110 deg),
+            # unlike the narrower oak-d. focal_length=8 -> HFOV ~105 deg so the whole table + both
+            # hands fill the egocentric view like the training frame (output/bg_aria_ref.png).
+            # (The shared focal=20 was tuned for oak-d and is far too narrow for Aria.)
+            focal_length=8.0,
             horizontal_aperture=20.955,
         ),
         offset=CameraCfg.OffsetCfg(
@@ -362,7 +430,7 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
         ),
         offset=CameraCfg.OffsetCfg(
             pos=_OAKD_EYE,
-            rot=_look_at_quat(_OAKD_EYE, _WORKSPACE_TARGET),
+            rot=_look_at_quat(_OAKD_EYE, _OAKD_TARGET),
             convention="opengl",
         ),
     )
