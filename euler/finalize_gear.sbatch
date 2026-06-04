@@ -14,7 +14,7 @@ set -uo pipefail
 cd /cluster/scratch/rjiang/dreamzero
 
 RAW=${RAW:-/cluster/work/cvg/data/Egoverse/raw_timesynced_h5/bag_groceries}
-DATA_ROOT=${DATA_ROOT:-/cluster/scratch/rjiang/dreamzero/data/franka_orca_bag_groceries_lerobot}
+DATA_ROOT=${DATA_ROOT:-/cluster/scratch/rjiang/dreamzero/data/franka_orca_lerobot}
 
 echo "==> finalize info.json + global index"
 .venv/bin/python scripts/data/convert_bag_groceries.py \

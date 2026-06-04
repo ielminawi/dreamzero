@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=12
 #SBATCH --mem-per-cpu=8G
 #SBATCH --gpus-per-node=1
-#SBATCH --gres=gpumem:20g
+#SBATCH --gres=gpumem:24g
 #SBATCH --account=ls_polle
 #SBATCH --output=/cluster/scratch/rjiang/dreamzero/euler/logs/prep.%A_%a.log
 
@@ -27,10 +27,10 @@ export DS_ACCELERATOR=cpu   # force deepspeed accelerator to CPU so transformers
                             # bg removal still uses GPU via torch directly.
 
 RAW=${RAW:-/cluster/work/cvg/data/Egoverse/raw_timesynced_h5/bag_groceries}
-DATA_ROOT=${DATA_ROOT:-/cluster/scratch/rjiang/dreamzero/data/franka_orca_bag_groceries_lerobot}
+DATA_ROOT=${DATA_ROOT:-/cluster/scratch/rjiang/dreamzero/data/franka_orca_lerobot}
 NUM_SHARDS=${NUM_SHARDS:-10}
-BG=${BG:-segformer}
-TASK=${TASK:-"pack the groceries into the bag"}
+BG=${BG:-mask2former}
+TASK=${TASK:-"bag the groceries"}
 
 echo "==> node $(hostname); shard ${SLURM_ARRAY_TASK_ID}/${NUM_SHARDS}; bg=${BG}; out=${DATA_ROOT}"
 nvidia-smi -L
@@ -38,5 +38,5 @@ nvidia-smi -L
   --input-dir "$RAW" --output-dir "$DATA_ROOT" \
   --fps 50 --target-resolution 640x480 --task "$TASK" \
   --num-shards "$NUM_SHARDS" --shard-index "${SLURM_ARRAY_TASK_ID}" \
-  --bg-removal "$BG" --bg-batch-size 24
+  --bg-removal "$BG" ${BG_MODEL:+--bg-model "$BG_MODEL"}
 echo "==> shard ${SLURM_ARRAY_TASK_ID} exit: $?"

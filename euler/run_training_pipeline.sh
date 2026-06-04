@@ -12,9 +12,9 @@ set -euo pipefail
 cd /cluster/scratch/rjiang/dreamzero
 
 export RAW=${RAW:-/cluster/work/cvg/data/Egoverse/raw_timesynced_h5/bag_groceries}
-export DATA_ROOT=${DATA_ROOT:-/cluster/scratch/rjiang/dreamzero/data/franka_orca_bag_groceries_lerobot}
+export DATA_ROOT=${DATA_ROOT:-/cluster/scratch/rjiang/dreamzero/data/franka_orca_lerobot}
 export NUM_SHARDS=${NUM_SHARDS:-10}
-export BG=${BG:-segformer}
+export BG=${BG:-mask2former}
 
 echo "RAW=$RAW"
 echo "DATA_ROOT=$DATA_ROOT  NUM_SHARDS=$NUM_SHARDS  BG=$BG"
