@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name=dz_train_franka_orca_100h
-#SBATCH --partition=cuda13pr.120h
 #SBATCH --time=100:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -33,9 +32,16 @@ fi
 export FRANKA_ORCA_DATA_ROOT="$REPO/data/franka_orca_lerobot"
 export OUTPUT_DIR="$REPO/checkpoints/dreamzero_franka_orca_lora"
 export NUM_GPUS=1
-export MAX_STEPS=${MAX_STEPS:-1000000}   # 100h wall-clock governs, not step count
+export MAX_STEPS=${MAX_STEPS:-100000}
 export SAVE_STEPS=2000
-export REPORT_TO=none
+# wandb: loss curves + metrics. Offline by default (no creds needed; `wandb sync` later).
+# For a live dashboard: export WANDB_API_KEY=... WANDB_MODE=online before sbatch.
+export REPORT_TO=wandb
+export WANDB_PROJECT=dreamzero
+export WANDB_MODE=${WANDB_MODE:-offline}
+export WANDB_DIR=/cluster/scratch/rjiang/dreamzero/wandb
+export WANDB_RUN_NAME="franka_orca_bimanual_100h_$(date +%Y%m%d 2>/dev/null || echo run)"
+mkdir -p "$WANDB_DIR"
 test -d "$FRANKA_ORCA_DATA_ROOT/meta" || { echo "ERROR: $FRANKA_ORCA_DATA_ROOT/meta missing -- preprocessing must finish first"; exit 1; }
 nvidia-smi -L || true
 bash "$REPO/scripts/train/franka_orca_training.sh"

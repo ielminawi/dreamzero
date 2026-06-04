@@ -30,11 +30,21 @@ import numpy as np
 # ADE20K class *names* (substring match on id2label) that are background room surfaces.
 # Robot arms/hands/objects are not ADE20K classes; they get mislabelled as e.g.
 # chair/airplane/person/base but never floor/wall, so they survive as foreground.
+# Remove only the *room verticals* (the stuff BEHIND/ABOVE the table). We deliberately
+# do NOT remove 'floor' here: Mask2Former inconsistently labels the wood table as either
+# 'table' or 'floor', so removing 'floor' would delete the table (which must stay fully
+# visible). Keeping {table, floor, rug, ...} + all objects/arms/hands guarantees the full
+# table and full arms survive; the red tiles seen behind the table read as wall/background.
 ADE20K_REMOVE_SUBSTRINGS = (
-    "wall", "floor", "ceiling", "windowpane", "window ", "door", "road",
-    "sidewalk", "earth", "field", "rug", "carpet", "stairway", "stairs", "step",
-    "runway", "path", "grass", "sky", "hill", "sand", "skyscraper",
-    "building", "house", "fence", "railing", "blind", "curtain",
+    "wall", "ceiling", "windowpane", "window ", "door", "curtain", "blind",
+    "building", "house", "skyscraper", "fence", "railing", "awning", "sky",
+)
+# Ground/floor classes (incl. the wood table when Mask2Former mislabels it). Handled by
+# `floor_mode`: 'keep' (keep all -> tiles stay), 'remove' (drop all -> table lost), or
+# 'near' (keep floor NEAR the arms/objects = the table, drop floor FAR away = tiles/room).
+ADE20K_FLOOR_SUBSTRINGS = (
+    "floor", "rug", "carpet", "earth", "road", "sidewalk", "path", "sand",
+    "field", "grass", "runway", "dirt track",
 )
 # Trusted foreground "anchor" — the workspace the arms operate over.
 ADE20K_ANCHOR_SUBSTRINGS = ("table", "desk", "countertop", "counter", "pool table", "coffee table")
@@ -43,7 +53,7 @@ DEFAULT_SEGFORMER = "nvidia/segformer-b4-finetuned-ade-512-512"
 DEFAULT_MASK2FORMER = "facebook/mask2former-swin-large-ade-semantic"
 DEFAULT_BACKEND = "mask2former"
 DEFAULT_MODEL = None       # resolved from backend if None
-DEFAULT_FILL = 0           # black
+DEFAULT_FILL = 128         # neutral gray: a near-black Orca hand stays visible (black hid it)
 
 
 class BackgroundRemover:
@@ -60,6 +70,8 @@ class BackgroundRemover:
         anchor_dilate: int = 10,
         feather: float = 1.0,
         prune_to_anchor: bool = False,
+        floor_mode: str = "remove",  # 'keep' | 'remove' | 'near' (user choice: remove)
+        near_frac: float = 0.16,    # 'near' radius as fraction of min(low-res h,w)
     ):
         import torch
 
@@ -94,6 +106,12 @@ class BackgroundRemover:
             sorted(i for i, n in id2label.items() if any(s in n.lower() for s in ADE20K_ANCHOR_SUBSTRINGS)),
             dtype=np.int64,
         )
+        self.floor_ids = np.array(
+            sorted(i for i, n in id2label.items() if any(s in n.lower() for s in ADE20K_FLOOR_SUBSTRINGS)),
+            dtype=np.int64,
+        )
+        self.floor_mode = floor_mode
+        self.near_frac = near_frac
         self.fill = int(fill)
         self.batch_size = int(batch_size or default_bs)
         self.close_radius = close_radius
@@ -131,7 +149,20 @@ class BackgroundRemover:
         from scipy import ndimage as ndi
 
         h, w = seg.shape
-        fg = ~np.isin(seg, self.remove_ids)
+        room = np.isin(seg, self.remove_ids)        # walls / windows / doors / ceiling
+        floor = np.isin(seg, self.floor_ids)         # ground/floor (incl. table mislabelled)
+        solid = ~room & ~floor                       # objects + arms + table-when-labelled-table
+        solid = ndi.binary_fill_holes(solid)
+
+        if self.floor_mode == "keep":
+            fg = ~room
+        elif self.floor_mode == "remove":
+            fg = solid
+        else:  # 'near': keep floor only near the arms/objects (= the table), drop far floor (tiles)
+            r = max(1, int(self.near_frac * min(h, w)))
+            near = ndi.binary_dilation(solid, structure=self._disk(r))
+            fg = solid | (floor & near)
+        fg &= ~room
         fg = ndi.binary_fill_holes(fg)
         if self.close_radius > 0:
             fg = ndi.binary_closing(fg, structure=self._disk(self.close_radius))

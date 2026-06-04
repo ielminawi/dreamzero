@@ -231,9 +231,10 @@ def main():
     ap.add_argument("--num-shards", type=int, default=1)
     ap.add_argument("--shard-index", type=int, default=0)
     ap.add_argument("--max-episodes", type=int, default=None)
-    ap.add_argument("--bg-removal", choices=["none", "segformer", "mask2former"], default="mask2former")
+    ap.add_argument("--bg-removal", choices=["none", "segformer", "mask2former"], default="none")  # bg removal OFF for now
     ap.add_argument("--bg-model", type=str, default=None)  # auto per backend
-    ap.add_argument("--bg-fill", type=int, default=0)       # black
+    ap.add_argument("--bg-fill", type=int, default=128)     # neutral gray (dark hand stays visible)
+    ap.add_argument("--floor-mode", choices=["keep", "near", "remove"], default="remove")
     ap.add_argument("--bg-batch-size", type=int, default=None)
     ap.add_argument("--finalize", action="store_true")
     args = ap.parse_args()
@@ -265,9 +266,10 @@ def main():
     if args.bg_removal != "none":
         import bg_removal
         remover = bg_removal.BackgroundRemover(backend=args.bg_removal, model_name=args.bg_model,
-                                               fill=args.bg_fill, batch_size=args.bg_batch_size)
-        log.info("BackgroundRemover ready (backend=%s model=%s device=%s fill=%d)",
-                 args.bg_removal, remover.model_name, remover.device, remover.fill)
+                                               fill=args.bg_fill, batch_size=args.bg_batch_size,
+                                               floor_mode=args.floor_mode)
+        log.info("BackgroundRemover ready (backend=%s model=%s device=%s fill=%d floor_mode=%s)",
+                 args.bg_removal, remover.model_name, remover.device, remover.fill, args.floor_mode)
 
     for n_done, ep_idx in enumerate(my_eps):
         try:

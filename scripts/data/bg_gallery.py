@@ -31,7 +31,7 @@ def resize(img):
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     files = sorted(glob.glob(f"{RAW}/*.h5"))
-    br = bg_removal.BackgroundRemover(batch_size=24)
+    br = bg_removal.BackgroundRemover(batch_size=8)  # defaults: mask2former, floor_mode=remove, gray fill
     print("device", br.device, "fill", br.fill)
 
     # ---- contact sheet: 4 episodes x 2 cams x ~2 timepoints ----
