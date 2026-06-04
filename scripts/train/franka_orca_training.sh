@@ -69,11 +69,11 @@ torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment
     seed=42 \
     training_args.learning_rate=1e-5 \
     training_args.deepspeed="groot/vla/configs/deepspeed/zero2.json" \
-    save_steps=10000 \
+    save_steps=${SAVE_STEPS:-10000} \
     training_args.warmup_ratio=0.05 \
     output_dir=$OUTPUT_DIR \
     per_device_train_batch_size=1 \
-    max_steps=100000 \
+    max_steps=${MAX_STEPS:-100000} \
     weight_decay=1e-5 \
     save_total_limit=10 \
     upload_checkpoints=false \

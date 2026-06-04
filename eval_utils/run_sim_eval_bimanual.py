@@ -41,6 +41,7 @@ app_launcher = AppLauncher(args)
 simulation_app = app_launcher.app
 
 # Now safe to import Isaac/sim_envs
+import os
 import sys
 sys.path.insert(0, "/app")
 
@@ -91,6 +92,8 @@ class DreamZeroBimanualClient:
         self.actions_from_chunk_completed = 0
         self.pred_action_chunk = None
         self.session_id = str(uuid.uuid4())
+        self._bg = None
+        self._bg_inited = False
 
     def reset(self):
         self.actions_from_chunk_completed = 0
@@ -102,6 +105,26 @@ class DreamZeroBimanualClient:
         if img.dtype != np.uint8:
             img = img.astype(np.uint8)
         return cv2.resize(img, (self.INFER_WIDTH, self.INFER_HEIGHT))
+
+    def _maybe_bg(self, img: np.ndarray) -> np.ndarray:
+        """Apply the SAME background removal used in preprocessing, so train==eval.
+
+        Gated by env DZ_BG_REMOVAL (none|segformer); must match how the training
+        dataset was converted (bg_removal.BackgroundRemover). Off by default.
+        """
+        method = os.environ.get("DZ_BG_REMOVAL", "none")
+        if method == "none":
+            return img
+        if not self._bg_inited:
+            self._bg_inited = True
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+            import bg_removal
+            self._bg = bg_removal.BackgroundRemover(
+                model_name=os.environ.get("DZ_BG_MODEL", bg_removal.DEFAULT_MODEL),
+                fill=int(os.environ.get("DZ_BG_FILL", bg_removal.DEFAULT_FILL)),
+            )
+            print(f"[bg] inference bg removal ON ({method}, fill={self._bg.fill})", flush=True)
+        return self._bg.apply_one(img)
 
     def infer(self, obs: dict, instruction: str) -> dict:
         """Run inference, returning the next action and visualization.
@@ -126,8 +149,8 @@ class DreamZeroBimanualClient:
 
             # Build request in the format expected by the inference server
             # Map to the camera keys the server expects
-            aria_resized = self._resize_image(curr_obs["aria_rgb_cam"])
-            oakd_resized = self._resize_image(curr_obs["oakd_front_view"])
+            aria_resized = self._maybe_bg(self._resize_image(curr_obs["aria_rgb_cam"]))
+            oakd_resized = self._maybe_bg(self._resize_image(curr_obs["oakd_front_view"]))
 
             request_data = {
                 # Map 2 cameras to the server's expected keys
