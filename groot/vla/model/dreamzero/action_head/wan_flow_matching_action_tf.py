@@ -928,7 +928,11 @@ class WANPolicyHead(ActionHead):
 
         return True
 
-    def lazy_joint_video_action(self, backbone_output: BatchFeature, action_input: BatchFeature, latent_video: torch.Tensor | None = None) -> BatchFeature:
+    def lazy_joint_video_action(self, backbone_output: BatchFeature, action_input: BatchFeature, latent_video: torch.Tensor | None = None, cond_action: torch.Tensor | None = None) -> BatchFeature:
+        # cond_action: if given (B, action_horizon, action_dim) in the model's NORMALIZED
+        # action space, the action is treated as KNOWN/clean — it is injected instead of
+        # noise and is NOT denoised, so the video is generated CONDITIONED on it
+        # (action-conditioned "world model as simulator"). Default None == original behavior.
         start_time = time.perf_counter()
 
         # Tracking time taken on GPU for various operations.
@@ -1130,6 +1134,11 @@ class WANPolicyHead(ActionHead):
 
         noisy_input = noise_obs
         noisy_input_action = noise_action
+        if cond_action is not None:
+            _ca = cond_action
+            if _ca.dim() == 2:
+                _ca = _ca.unsqueeze(0)
+            noisy_input_action = _ca.to(device=noisy_input_action.device, dtype=noisy_input_action.dtype)
 
         # Step 3.1: Spatial denoising loop
 
@@ -1169,6 +1178,8 @@ class WANPolicyHead(ActionHead):
             # Get timesteps from respective schedulers
             action_timestep = sample_scheduler_action.timesteps[index]
             video_timestep = sample_scheduler.timesteps[index]  # Already rescaled if decoupled
+            if cond_action is not None:
+                action_timestep = action_timestep * 0  # action is known/clean -> timestep 0
 
             # set current timestep
             timestep = torch.ones(
@@ -1232,14 +1243,16 @@ class WANPolicyHead(ActionHead):
                 return_dict=False,
             )[0]
             
-            # Action: always fully denoises with standard schedule (1000->0)
-            noisy_input_action = sample_scheduler_action.step(
-                model_output=flow_pred_cond_action,
-                timestep=action_timestep,
-                sample=noisy_input_action,
-                step_index=index,
-                return_dict=False,
-            )[0]
+            # Action: fully denoises with standard schedule (1000->0) UNLESS a clean
+            # action was injected (cond_action) -- then keep it fixed (action-conditioned).
+            if cond_action is None:
+                noisy_input_action = sample_scheduler_action.step(
+                    model_output=flow_pred_cond_action,
+                    timestep=action_timestep,
+                    sample=noisy_input_action,
+                    step_index=index,
+                    return_dict=False,
+                )[0]
 
         latents = noisy_input
         latents_action = noisy_input_action

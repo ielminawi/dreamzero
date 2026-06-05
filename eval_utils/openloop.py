@@ -1,72 +1,87 @@
 #!/usr/bin/env python3
-"""TRUE open-loop world-model rollout + horizon plot.
+"""Open-loop world-model rollouts + horizon comparison plot.
 
-Seed the model with ONE real frame, then roll forward autoregressively feeding the
-model's OWN decoded predictions back as the next observation (no GT re-grounding).
-Produce a plot comparing the open-loop prediction to ground truth at horizons
-t = 5, 10, 15, 20, 25 frames, for both camera views (2x2 canvas: TL=aria, BL=oakd).
+Two modes (both roll the VIDEO open-loop: seed 1 real frame, then feed the model's
+own decoded predictions back; never re-ground on GT frames):
+
+  mode "gtsim"  -- World model AS SIMULATOR: at each step inject the RECORDED
+                   ground-truth ACTION (normalized) via cond_action, so the video is
+                   driven by the real actions. Tests action->video dynamics fidelity.
+  mode "dream"  -- Closed-loop policy<->WM: the joint model predicts its OWN action and
+                   the video consistent with it, autoregressively (self-rollout).
+
+Produces, per camera, a 3-row plot [GT | gtsim | dream] at horizons t=5,10,15,20,25,
+plus the rollout mp4s.
 """
 import argparse, os, sys
 import numpy as np
 import torch
 import torch.distributed as dist
+import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
 from validate_wm import (CAMERA_KEYS, CONCAT_ORDER, STATE_KEYS_DIMS, LANG_KEY,
                          read_gt_window, decode_latents, resize_to)
+from action_norm import load_stats, normalize_action_chunk
 
 import logging
 log = logging.getLogger("openloop")
 
 
 def seed_obs(frame_by_cam, instruction):
-    """Step-0 obs: 1 real seed frame per camera."""
-    obs = {ck: frame_by_cam[ck][None] for ck in CAMERA_KEYS}   # (1,H,W,3)
+    obs = {ck: frame_by_cam[ck][None] for ck in CAMERA_KEYS}
     for k, d in STATE_KEYS_DIMS.items():
         obs[k] = np.zeros((1, d), dtype=np.float64)
     obs[LANG_KEY] = instruction
     return obs
 
 
-def pred_obs(pred_buf, fpc, instruction):
-    """Step-k obs (k>=1): last `fpc` PREDICTED frames per camera (open loop)."""
+def pred_obs(pred_buf, fpc, instruction, raw_hw=(480, 640)):
     obs = {}
     for ck in CAMERA_KEYS:
         buf = pred_buf[ck]
-        sel = np.stack(buf[-fpc:]) if len(buf) >= fpc else np.stack(
-            buf + [buf[-1]] * (fpc - len(buf)))
-        obs[ck] = sel
+        sel = buf[-fpc:] if len(buf) >= fpc else buf + [buf[-1]] * (fpc - len(buf))
+        obs[ck] = np.stack([resize_to(f, raw_hw[0], raw_hw[1]) for f in sel])
     for k, d in STATE_KEYS_DIMS.items():
         obs[k] = np.zeros((1, d), dtype=np.float64)
     obs[LANG_KEY] = instruction
     return obs
 
 
-def split_quads(canvas_frames):
-    """(T,2h,2w,3) -> dict aria=TL, oakd=BL  (each (T,h,w,3))."""
-    H, W = canvas_frames.shape[1], canvas_frames.shape[2]
+def split_quads(canvas):
+    H, W = canvas.shape[1], canvas.shape[2]
     hh, ww = H // 2, W // 2
-    return {CONCAT_ORDER[0]: canvas_frames[:, :hh, :ww],
-            CONCAT_ORDER[1]: canvas_frames[:, hh:hh * 2, :ww]}, hh, ww
+    return {CONCAT_ORDER[0]: canvas[:, :hh, :ww],
+            CONCAT_ORDER[1]: canvas[:, hh:hh * 2, :ww]}, hh, ww
 
 
-def rollout(policy, Batch, dsdir, ep, start, num_steps, fpc, instruction):
-    from tianshou.data import Batch as B
+def rollout(policy, Batch, dsdir, ep, start, num_steps, fpc, instruction, mode,
+            act=None, st=None, stats=None, horizon=24):
     seed = read_gt_window(dsdir, ep, CAMERA_KEYS, start, 1)
     seed1 = {ck: seed[ck][0] for ck in CAMERA_KEYS}
     pred_buf = {ck: [] for ck in CAMERA_KEYS}
-    all_lat, latent_video = [], None
+    all_lat, latent_video, produced = [], None, 0
     for step in range(num_steps):
+        cond_action = None
+        if mode == "gtsim":
+            anchor = min(start + produced, len(act) - 1)             # real-time frame index
+            chunk = act[anchor:anchor + horizon]
+            if len(chunk) < horizon:                                  # pad tail
+                chunk = np.concatenate([chunk, np.repeat(chunk[-1:], horizon - len(chunk), 0)], 0)
+            ca = normalize_action_chunk(chunk, st[anchor], stats)     # (24,48) in [-1,1]
+            cond_action = torch.tensor(ca, dtype=torch.bfloat16, device="cuda")
         obs = seed_obs(seed1, instruction) if step == 0 else pred_obs(pred_buf, fpc, instruction)
         with torch.no_grad():
-            _, vp = policy.lazy_joint_forward_causal(B(obs=obs), latent_video=latent_video)
+            _, vp = policy.lazy_joint_forward_causal(Batch(obs=obs), latent_video=latent_video,
+                                                     cond_action=cond_action)
         latent_video = vp
         all_lat.append(vp)
-        step_pix = decode_latents(policy, [vp])           # decode THIS chunk to feed back
+        step_pix = decode_latents(policy, [vp])
         q, hh, ww = split_quads(step_pix)
         for ck, cam in zip(CAMERA_KEYS, CONCAT_ORDER):
             pred_buf[ck].extend(list(q[cam]))
-    full = decode_latents(policy, all_lat)                 # full predicted canvas
+        produced += step_pix.shape[0]
+    full = decode_latents(policy, all_lat)
     quads, hh, ww = split_quads(full)
     return quads, hh, ww
 
@@ -78,44 +93,46 @@ def best_off(gt, pr, maxoff=6):
     for o in range(maxoff + 1):
         n = min(P, G - o)
         if n <= 6: continue
-        s = np.mean([ssim(gt[o + k], pr[k], data_range=255, channel_axis=2)
-                     for k in range(0, min(n, 12))])
+        s = np.mean([ssim(gt[o + k], pr[k], data_range=255, channel_axis=2) for k in range(0, min(n, 12))])
         if s > bs: bs, bo = s, o
     return bo
 
 
-def make_plot(quads, hh, ww, dsdir, ep, start, horizons, out_png, title):
+def plot_compare(results, hh, ww, dsdir, ep, start, horizons, out_png):
+    """results: dict mode-> quads(dict cam->frames). Build per-camera [GT|modeA|modeB] rows."""
     import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
     from skimage.metrics import structural_similarity as ssim
-    T = quads[CONCAT_ORDER[0]].shape[0]
-    gt = read_gt_window(dsdir, ep, CAMERA_KEYS, start, T + max(horizons) + 8)
+    modes = list(results.keys())
+    Tmax = max(results[m][CONCAT_ORDER[0]].shape[0] for m in modes)
+    gt = read_gt_window(dsdir, ep, CAMERA_KEYS, start, Tmax + max(horizons) + 8)
     gt_v = {cam: np.stack([resize_to(f, hh, ww) for f in gt[ck]])
             for ck, cam in zip(CAMERA_KEYS, CONCAT_ORDER)}
-    off = best_off(gt_v[CONCAT_ORDER[0]], quads[CONCAT_ORDER[0]])
+    offs = {m: best_off(gt_v[CONCAT_ORDER[0]], results[m][CONCAT_ORDER[0]]) for m in modes}
+    LBL = {"gtsim": "WM-sim (GT actions)", "dream": "closed-loop (own actions)"}
 
-    cams = CONCAT_ORDER
-    rows = 2 * len(cams)
-    cols = len(horizons)
-    fig, ax = plt.subplots(rows, cols, figsize=(2.2 * cols, 2.2 * rows))
-    for ci, t in enumerate(horizons):
-        ax[0, ci].set_title(f"t = {t}", fontsize=13)
-    for vi, cam in enumerate(cams):
+    for cam in CONCAT_ORDER:
+        rows = 1 + len(modes)
+        fig, ax = plt.subplots(rows, len(horizons), figsize=(2.3 * len(horizons), 2.3 * rows))
         for ci, t in enumerate(horizons):
-            pt = min(t, T - 1)
-            gtf = gt_v[cam][min(off + t, gt_v[cam].shape[0] - 1)]
-            prf = quads[cam][pt]
-            ssv = ssim(gtf, prf, data_range=255, channel_axis=2)
-            a_gt = ax[2 * vi, ci]; a_pr = ax[2 * vi + 1, ci]
-            a_gt.imshow(gtf); a_pr.imshow(prf)
-            a_pr.set_xlabel(f"SSIM {ssv:.2f}", fontsize=9)
-            for a in (a_gt, a_pr): a.set_xticks([]); a.set_yticks([])
-        ax[2 * vi, 0].set_ylabel(f"{cam}\nGROUND TRUTH", fontsize=10)
-        ax[2 * vi + 1, 0].set_ylabel(f"{cam}\nOPEN-LOOP PRED", fontsize=10)
-    fig.suptitle(title, fontsize=14)
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
-    fig.savefig(out_png, dpi=120)
-    log.info(f"wrote {out_png}  (T={T} pred frames, align off={off})")
-    return T, off
+            ax[0, ci].set_title(f"t = {t}", fontsize=13)
+            ax[0, ci].imshow(gt_v[cam][min(t, gt_v[cam].shape[0] - 1)])
+            ax[0, ci].set_xticks([]); ax[0, ci].set_yticks([])
+        ax[0, 0].set_ylabel("GROUND TRUTH", fontsize=10)
+        for mi, m in enumerate(modes):
+            q = results[m][cam]; off = offs[m]; T = q.shape[0]
+            for ci, t in enumerate(horizons):
+                pt = min(t, T - 1)
+                gtf = gt_v[cam][min(off + t, gt_v[cam].shape[0] - 1)]
+                prf = q[pt]
+                sv = ssim(gtf, prf, data_range=255, channel_axis=2)
+                a = ax[mi + 1, ci]; a.imshow(prf); a.set_xticks([]); a.set_yticks([])
+                a.set_xlabel(f"SSIM {sv:.2f}", fontsize=9)
+            ax[mi + 1, 0].set_ylabel(LBL.get(m, m), fontsize=10)
+        fig.suptitle(f"Open-loop WM vs GT  |  ckpt-20000  |  ep{ep} s{start}  |  {cam}", fontsize=13)
+        fig.tight_layout(rect=[0, 0, 1, 0.96])
+        p = out_png.replace(".png", f"_{cam}.png")
+        fig.savefig(p, dpi=120); plt.close(fig)
+        log.info(f"wrote {p}")
 
 
 def main():
@@ -123,7 +140,8 @@ def main():
     ap.add_argument("--model-path", required=True)
     ap.add_argument("--dataset-dir", required=True)
     ap.add_argument("--embodiment", default="franka_orca_bimanual")
-    ap.add_argument("--clips", default="32:1600,5:50", help="ep:start,ep:start")
+    ap.add_argument("--clip", default="32:1600", help="ep:start")
+    ap.add_argument("--modes", default="gtsim,dream")
     ap.add_argument("--num-steps", type=int, default=10)
     ap.add_argument("--frames-per-chunk", type=int, default=4)
     ap.add_argument("--horizons", default="5,10,15,20,25")
@@ -151,20 +169,27 @@ def main():
     log.info("model loaded.")
 
     os.makedirs(a.out_dir, exist_ok=True)
-    horizons = [int(x) for x in a.horizons.split(",")]
     import imageio.v2 as iio
-    for spec in a.clips.split(","):
-        ep, start = (int(x) for x in spec.split(":"))
-        log.info(f"open-loop rollout ep{ep} start{start} ...")
-        quads, hh, ww = rollout(policy, Batch, a.dataset_dir, ep, start,
-                                a.num_steps, a.frames_per_chunk, a.instruction)
-        tag = f"ep{ep:06d}_s{start:05d}"
-        # save the open-loop predicted videos (per view) + a combined canvas video
+    horizons = [int(x) for x in a.horizons.split(",")]
+    ep, start = (int(x) for x in a.clip.split(":"))
+    modes = a.modes.split(",")
+
+    stats = load_stats(os.path.join(a.dataset_dir, "meta", "relative_stats_dreamzero.json"))
+    df = pd.read_parquet(os.path.join(a.dataset_dir, "data", "chunk-000", f"episode_{ep:06d}.parquet"))
+    act = np.stack(df["action"].values)
+    st = np.stack(df["observation.state"].values)
+
+    results, hh, ww = {}, None, None
+    for mode in modes:
+        log.info(f"rollout mode={mode} ep{ep} s{start} ...")
+        quads, hh, ww = rollout(policy, Batch, a.dataset_dir, ep, start, a.num_steps,
+                                a.frames_per_chunk, a.instruction, mode, act=act, st=st, stats=stats)
+        results[mode] = quads
+        tag = f"ep{ep:06d}_s{start:05d}_{mode}"
         for cam in CONCAT_ORDER:
-            iio.mimsave(f"{a.out_dir}/{tag}_{cam}_openloop.mp4", list(quads[cam]), fps=10, codec="libx264")
-        make_plot(quads, hh, ww, a.dataset_dir, ep, start, horizons,
-                  f"{a.out_dir}/openloop_horizons_{tag}.png",
-                  f"Open-loop WM prediction vs GT  |  ckpt-20000  |  {tag}")
+            iio.mimsave(f"{a.out_dir}/{tag}_{cam}.mp4", list(quads[cam]), fps=10, codec="libx264")
+    plot_compare(results, hh, ww, a.dataset_dir, ep, start, horizons,
+                 f"{a.out_dir}/openloop_compare_ep{ep:06d}_s{start:05d}.png")
     log.info("done.")
 
 
