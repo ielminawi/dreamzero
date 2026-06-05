@@ -22,6 +22,7 @@ export DZ_EPISODES="${DZ_EPISODES:-2}"
 export DZ_HORIZON="${DZ_HORIZON:-24}"
 export DZ_INSTRUCTION="${DZ_INSTRUCTION:-bag the groceries}"
 export WANDB_PROJECT="${WANDB_PROJECT:-dreamzero}"
+export WANDB_ENTITY="${WANDB_ENTITY:-idsc-rda}"
 export WANDB_MODE="${WANDB_MODE:-offline}"
 export WANDB_DIR=/cluster/scratch/rjiang/dreamzero/wandb
 mkdir -p "$WANDB_DIR"
