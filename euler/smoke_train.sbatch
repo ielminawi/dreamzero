@@ -36,8 +36,7 @@ export MAX_STEPS=10
 export SAVE_STEPS=5
 export REPORT_TO=wandb
 export WANDB_PROJECT=dreamzero
-export WANDB_ENTITY=${WANDB_ENTITY:-idsc-rda}
-export WANDB_MODE=${WANDB_MODE:-offline}
+export WANDB_MODE=${WANDB_MODE:-online}
 export WANDB_DIR=/cluster/scratch/rjiang/dreamzero/wandb
 export WANDB_RUN_NAME=smoke_$SLURM_JOB_ID
 mkdir -p "$WANDB_DIR"

@@ -4,7 +4,6 @@
 #   setsid bash /cluster/scratch/rjiang/dreamzero/euler/wandb_autosync.sh >/cluster/scratch/rjiang/dreamzero/euler/logs/wandb_autosync.log 2>&1 < /dev/null &
 # Stop it with:  pkill -f wandb_autosync
 cd /cluster/scratch/rjiang/dreamzero || exit 1
-export WANDB_ENTITY=${WANDB_ENTITY:-idsc-rda}
 while true; do
   for d in checkpoints/dreamzero_franka_orca_lora/wandb/offline-run-* \
            checkpoints/dreamzero_franka_orca_lora_smoke/wandb/offline-run-*; do

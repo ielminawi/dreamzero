@@ -38,10 +38,9 @@ export SAVE_STEPS=2000
 # For a live dashboard: export WANDB_API_KEY=... WANDB_MODE=online before sbatch.
 export REPORT_TO=wandb
 export WANDB_PROJECT=dreamzero
-export WANDB_ENTITY=${WANDB_ENTITY:-idsc-rda}
-# Offline by default (training never blocks on compute-node network); keep the login-node
-# auto-sync running for a live dashboard. Set WANDB_MODE=online to log live natively.
-export WANDB_MODE=${WANDB_MODE:-offline}
+# Live logging by default (needs compute-node internet via eth_proxy, loaded above).
+# If a node can't reach wandb, set WANDB_MODE=offline and use euler/wandb_autosync.sh.
+export WANDB_MODE=${WANDB_MODE:-online}
 export WANDB_DIR=/cluster/scratch/rjiang/dreamzero/wandb
 export WANDB_RUN_NAME="franka_orca_bimanual_100h_$(date +%Y%m%d 2>/dev/null || echo run)"
 mkdir -p "$WANDB_DIR"
