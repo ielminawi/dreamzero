@@ -28,6 +28,21 @@ import logging
 log = logging.getLogger("openloop")
 
 
+def _snap(ah):
+    """Snapshot the causal self-attn KV cache + frame counter (cheap: the cache grows by
+    cat/reassign, so saving references is enough). crossattn cache is text-derived (same
+    for both passes) so it's left alone."""
+    return (ah.current_start_frame,
+            list(ah.kv_cache1) if ah.kv_cache1 is not None else None,
+            list(ah.kv_cache_neg) if ah.kv_cache_neg is not None else None)
+
+
+def _restore(ah, s):
+    ah.current_start_frame = s[0]
+    ah.kv_cache1 = list(s[1]) if s[1] is not None else None
+    ah.kv_cache_neg = list(s[2]) if s[2] is not None else None
+
+
 def seed_obs(frame_by_cam, instruction):
     obs = {ck: frame_by_cam[ck][None] for ck in CAMERA_KEYS}
     for k, d in STATE_KEYS_DIMS.items():
@@ -61,7 +76,9 @@ def rollout(policy, Batch, dsdir, ep, start, num_steps, fpc, instruction, mode,
     seed1 = {ck: seed[ck][0] for ck in CAMERA_KEYS}
     pred_buf = {ck: [] for ck in CAMERA_KEYS}
     all_lat, latent_video, produced = [], None, 0
+    ah = policy.trained_model.action_head
     for step in range(num_steps):
+        obs = seed_obs(seed1, instruction) if step == 0 else pred_obs(pred_buf, fpc, instruction)
         cond_action = None
         if mode == "gtsim":
             anchor = min(start + produced, len(act) - 1)             # real-time frame index
@@ -70,8 +87,15 @@ def rollout(policy, Batch, dsdir, ep, start, num_steps, fpc, instruction, mode,
                 chunk = np.concatenate([chunk, np.repeat(chunk[-1:], horizon - len(chunk), 0)], 0)
             ca = normalize_action_chunk(chunk, st[anchor], stats)     # (24,48) in [-1,1]
             cond_action = torch.tensor(ca, dtype=torch.bfloat16, device="cuda")
-        obs = seed_obs(seed1, instruction) if step == 0 else pred_obs(pred_buf, fpc, instruction)
-        with torch.no_grad():
+        elif mode == "polact":
+            # Test 3: PASS A (policy) -> read the model's OWN predicted (normalized) action
+            # WITHOUT advancing the causal cache (snapshot/restore), then PASS B renders it.
+            s = _snap(ah)
+            with torch.no_grad():
+                bA, _ = policy.lazy_joint_forward_causal(Batch(obs=obs), latent_video=latent_video)
+            cond_action = bA.normalized_action.detach()              # the committed action
+            _restore(ah, s)
+        with torch.no_grad():                                         # PASS B (world model)
             _, vp = policy.lazy_joint_forward_causal(Batch(obs=obs), latent_video=latent_video,
                                                      cond_action=cond_action)
         latent_video = vp
@@ -108,7 +132,8 @@ def plot_compare(results, hh, ww, dsdir, ep, start, horizons, out_png):
     gt_v = {cam: np.stack([resize_to(f, hh, ww) for f in gt[ck]])
             for ck, cam in zip(CAMERA_KEYS, CONCAT_ORDER)}
     offs = {m: best_off(gt_v[CONCAT_ORDER[0]], results[m][CONCAT_ORDER[0]]) for m in modes}
-    LBL = {"gtsim": "WM-sim (GT actions)", "dream": "closed-loop (own actions)"}
+    LBL = {"gtsim": "WM-sim (GT actions)", "dream": "closed-loop (fused)",
+           "polact": "two-stage (policy->WM)"}
 
     for cam in CONCAT_ORDER:
         rows = 1 + len(modes)
