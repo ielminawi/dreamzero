@@ -27,6 +27,10 @@ from action_norm import load_stats, normalize_action_chunk
 import logging
 log = logging.getLogger("openloop")
 
+LBL = {"gtsim": "WM-sim (GT actions)", "dream": "closed-loop (fused)",
+       "polact": "two-stage (policy->WM)", "gtsim_zero": "no-motion action",
+       "gtsim_other": "other-episode action", "gtsim_rev": "time-reversed action"}
+
 
 def _snap(ah):
     """Snapshot the causal self-attn KV cache + frame counter (cheap: the cache grows by
@@ -71,7 +75,7 @@ def split_quads(canvas):
 
 
 def rollout(policy, Batch, dsdir, ep, start, num_steps, fpc, instruction, mode,
-            act=None, st=None, stats=None, horizon=24):
+            act=None, st=None, stats=None, horizon=24, act_other=None, st_other=None):
     seed = read_gt_window(dsdir, ep, CAMERA_KEYS, start, 1)
     seed1 = {ck: seed[ck][0] for ck in CAMERA_KEYS}
     pred_buf = {ck: [] for ck in CAMERA_KEYS}
@@ -80,12 +84,22 @@ def rollout(policy, Batch, dsdir, ep, start, num_steps, fpc, instruction, mode,
     for step in range(num_steps):
         obs = seed_obs(seed1, instruction) if step == 0 else pred_obs(pred_buf, fpc, instruction)
         cond_action = None
-        if mode == "gtsim":
+        if mode.startswith("gtsim"):
             anchor = min(start + produced, len(act) - 1)             # real-time frame index
-            chunk = act[anchor:anchor + horizon]
+            ref = st[anchor]
+            if mode == "gtsim_zero":            # no-motion: action==state -> relative 0
+                chunk = np.repeat(ref[None], horizon, 0)
+            elif mode == "gtsim_other":         # actions from a DIFFERENT episode (wrong)
+                oa = min(anchor, len(act_other) - 1)
+                chunk = act_other[oa:oa + horizon]; ref = st_other[min(oa, len(st_other) - 1)]
+            elif mode == "gtsim_rev":           # correct actions, reversed in time
+                chunk = act[anchor:anchor + horizon][::-1]
+            else:                                # gtsim: correct recorded actions
+                chunk = act[anchor:anchor + horizon]
+            chunk = np.ascontiguousarray(chunk)
             if len(chunk) < horizon:                                  # pad tail
                 chunk = np.concatenate([chunk, np.repeat(chunk[-1:], horizon - len(chunk), 0)], 0)
-            ca = normalize_action_chunk(chunk, st[anchor], stats)     # (24,48) in [-1,1]
+            ca = normalize_action_chunk(chunk, ref, stats)            # (24,48) in [-1,1]
             cond_action = torch.tensor(ca, dtype=torch.bfloat16, device="cuda")
         elif mode == "polact":
             # Test 3: PASS A (policy) -> read the model's OWN predicted (normalized) action
@@ -132,8 +146,6 @@ def plot_compare(results, hh, ww, dsdir, ep, start, horizons, out_png):
     gt_v = {cam: np.stack([resize_to(f, hh, ww) for f in gt[ck]])
             for ck, cam in zip(CAMERA_KEYS, CONCAT_ORDER)}
     offs = {m: best_off(gt_v[CONCAT_ORDER[0]], results[m][CONCAT_ORDER[0]]) for m in modes}
-    LBL = {"gtsim": "WM-sim (GT actions)", "dream": "closed-loop (fused)",
-           "polact": "two-stage (policy->WM)"}
 
     for cam in CONCAT_ORDER:
         rows = 1 + len(modes)
@@ -160,12 +172,36 @@ def plot_compare(results, hh, ww, dsdir, ep, start, horizons, out_png):
         log.info(f"wrote {p}")
 
 
+def plot_curves(results, hh, ww, dsdir, ep, start, out_png):
+    """Per-frame SSIM vs GT across the WHOLE horizon, one line per mode (shows full
+    drift + the action-sensitivity gap). Uses offset=0 (same alignment for all modes)."""
+    import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
+    from skimage.metrics import structural_similarity as ssim
+    modes = list(results.keys())
+    Tmax = max(results[m][CONCAT_ORDER[0]].shape[0] for m in modes)
+    gt = read_gt_window(dsdir, ep, CAMERA_KEYS, start, Tmax + 8)
+    gt_v = {cam: np.stack([resize_to(f, hh, ww) for f in gt[ck]])
+            for ck, cam in zip(CAMERA_KEYS, CONCAT_ORDER)}
+    fig, ax = plt.subplots(1, len(CONCAT_ORDER), figsize=(7 * len(CONCAT_ORDER), 4.5), squeeze=False)
+    for ci, cam in enumerate(CONCAT_ORDER):
+        for m in modes:
+            q = results[m][cam]; n = min(q.shape[0], gt_v[cam].shape[0])
+            ss = [ssim(gt_v[cam][i], q[i], data_range=255, channel_axis=2) for i in range(n)]
+            ax[0][ci].plot(range(n), ss, label=LBL.get(m, m), lw=1.6)
+        ax[0][ci].set_title(cam); ax[0][ci].set_xlabel("horizon frame t")
+        ax[0][ci].set_ylabel("SSIM vs GT"); ax[0][ci].grid(alpha=.3); ax[0][ci].legend(fontsize=8)
+    fig.suptitle(f"SSIM vs horizon — ckpt-20000  ep{ep} s{start}")
+    fig.tight_layout(rect=[0, 0, 1, 0.96]); fig.savefig(out_png, dpi=120); plt.close(fig)
+    log.info(f"wrote {out_png}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model-path", required=True)
     ap.add_argument("--dataset-dir", required=True)
     ap.add_argument("--embodiment", default="franka_orca_bimanual")
     ap.add_argument("--clip", default="32:1600", help="ep:start")
+    ap.add_argument("--other-ep", type=int, default=73, help="episode for 'gtsim_other' wrong actions")
     ap.add_argument("--modes", default="gtsim,dream")
     ap.add_argument("--num-steps", type=int, default=10)
     ap.add_argument("--frames-per-chunk", type=int, default=4)
@@ -203,18 +239,24 @@ def main():
     df = pd.read_parquet(os.path.join(a.dataset_dir, "data", "chunk-000", f"episode_{ep:06d}.parquet"))
     act = np.stack(df["action"].values)
     st = np.stack(df["observation.state"].values)
+    dfo = pd.read_parquet(os.path.join(a.dataset_dir, "data", "chunk-000", f"episode_{a.other_ep:06d}.parquet"))
+    act_other = np.stack(dfo["action"].values)
+    st_other = np.stack(dfo["observation.state"].values)
 
     results, hh, ww = {}, None, None
     for mode in modes:
         log.info(f"rollout mode={mode} ep{ep} s{start} ...")
         quads, hh, ww = rollout(policy, Batch, a.dataset_dir, ep, start, a.num_steps,
-                                a.frames_per_chunk, a.instruction, mode, act=act, st=st, stats=stats)
+                                a.frames_per_chunk, a.instruction, mode, act=act, st=st, stats=stats,
+                                act_other=act_other, st_other=st_other)
         results[mode] = quads
         tag = f"ep{ep:06d}_s{start:05d}_{mode}"
         for cam in CONCAT_ORDER:
             iio.mimsave(f"{a.out_dir}/{tag}_{cam}.mp4", list(quads[cam]), fps=10, codec="libx264")
     plot_compare(results, hh, ww, a.dataset_dir, ep, start, horizons,
                  f"{a.out_dir}/openloop_compare_ep{ep:06d}_s{start:05d}.png")
+    plot_curves(results, hh, ww, a.dataset_dir, ep, start,
+                f"{a.out_dir}/openloop_curves_ep{ep:06d}_s{start:05d}.png")
     log.info("done.")
 
 
