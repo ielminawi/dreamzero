@@ -274,6 +274,7 @@ def convert_episode(
     task: str,
     target_resolution: tuple[int, int] | None = None,
     arm_to_joints: bool = False,
+    skip_videos: bool = False,
 ) -> int:
     """Convert a single episode. Returns the number of frames."""
     ep_idx, h5_path = args_tuple
@@ -295,6 +296,8 @@ def convert_episode(
         df.to_parquet(parquet_path, index=False)
 
         # --- Videos ---
+        if skip_videos:
+            return T
         for h5_key, cam_name in CAMERA_KEYS.items():
             frames = h5f[h5_key][:]
             video_dir = (
@@ -320,6 +323,7 @@ def convert(
     num_workers: int | None = None,
     target_resolution: tuple[int, int] | None = None,
     arm_to_joints: bool = False,
+    skip_videos: bool = False,
 ) -> None:
     h5_files = get_h5_files(input_dir)
     if not h5_files:
@@ -366,7 +370,8 @@ def convert(
         log.info("ARM EE->JOINT conversion ON: arm dims of state/action will be IK'd to "
                  "Panda joint angles (adds ~%d IK solves per episode)", 4 * 4000)
     worker_fn = partial(convert_episode, output_dir=output_dir, fps=fps, task=task,
-                        target_resolution=target_resolution, arm_to_joints=arm_to_joints)
+                        target_resolution=target_resolution, arm_to_joints=arm_to_joints,
+                        skip_videos=skip_videos)
     indexed_files = list(enumerate(h5_files))
 
     if num_workers <= 1:
@@ -444,6 +449,12 @@ def main():
         help="Resize all cameras to WxH (e.g. '640x480'). Required when cameras have different resolutions.",
     )
     parser.add_argument(
+        "--skip-videos", action="store_true", default=False,
+        help="Skip video encoding (parquet + meta only). Use when the videos already exist "
+             "from a previous conversion of the same source (e.g. an EE->joint re-conversion) "
+             "and can be symlinked/copied.",
+    )
+    parser.add_argument(
         "--arm-ee-to-joints", action="store_true", default=False,
         help="Convert the arm EE-pose 7-vectors (x,y,z + XYZW quat flange pose; the raw h5 "
              "'qpos_arm'/'actions_arm' fields are poses, not joints) into Panda joint angles "
@@ -467,6 +478,7 @@ def main():
         num_workers=args.num_workers,
         target_resolution=target_resolution,
         arm_to_joints=args.arm_ee_to_joints,
+        skip_videos=args.skip_videos,
     )
 
 

@@ -34,7 +34,19 @@ echo "[preprocess] DST=$DST  fps=$FPS  res=$TARGET_RES  workers=$NW  max=${MAX_E
 MAXARG=()
 [ -n "$MAX_EPISODES" ] && MAXARG=(--max-episodes "$MAX_EPISODES")
 JOINTARG=()
-[ "$ARM_TO_JOINTS" = "1" ] && JOINTARG=(--arm-ee-to-joints) && echo "[preprocess] ARM EE->JOINT conversion ON"
+if [ "$ARM_TO_JOINTS" = "1" ]; then
+  JOINTARG=(--arm-ee-to-joints)
+  echo "[preprocess] ARM EE->JOINT conversion ON"
+  # Videos are identical to the EE-space dataset's (only state/action change):
+  # skip re-encoding and symlink them if the EE dataset exists.
+  EE_DST="$REPO/data/franka_orca_lerobot"
+  if [ "${SKIP_VIDEOS:-1}" = "1" ] && [ -d "$EE_DST/videos" ] && [ "$DST" != "$EE_DST" ]; then
+    JOINTARG+=(--skip-videos)
+    mkdir -p "$DST"
+    [ -e "$DST/videos" ] || ln -s "$EE_DST/videos" "$DST/videos"
+    echo "[preprocess] videos symlinked from $EE_DST/videos (skip re-encode)"
+  fi
+fi
 
 echo "[stage 1/2] HDF5 -> LeRobot v2 (parquet + mp4)"
 "$PY" scripts/data/convert_h5_to_lerobot.py \
