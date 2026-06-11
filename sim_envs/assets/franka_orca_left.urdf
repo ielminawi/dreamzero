@@ -1261,7 +1261,7 @@
       <material name="dark"/>
     </visual>
     <visual name="gavin_hand_plate">
-      <origin xyz="0.006220897 -0.03045047 0.08067889" rpy="1.403854 -0.047154 3.052323"/>
+      <origin xyz="0.006220897 -0.03045047 0.08067889" rpy="1.832292 0.0 3.141593"/>
       <geometry>
         <box size="0.065 0.055 0.012"/>
       </geometry>
@@ -1283,6 +1283,6 @@
   <joint name="gavin_mount_to_left_hand" type="fixed">
     <parent link="left_gavin_mount"/>
     <child link="left_root"/>
-    <origin xyz="0.006220897 -0.03045047 0.08067889" rpy="1.403854 -0.047154 3.052323"/>
+    <origin xyz="0.006220897 -0.03045047 0.08067889" rpy="1.832292 0.0 3.141593"/>
   </joint>
 </robot>

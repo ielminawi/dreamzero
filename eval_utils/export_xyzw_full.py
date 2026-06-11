@@ -35,17 +35,42 @@ def fk(q):
         c,s=np.cos(q[i]),np.sin(q[i]); R=R@np.array([[c,-s,0],[s,c,0],[0,0,1]])
     return R, p+R@FLANGE_T
 
+# Constant world-frame orientation correction A (135deg about (-1,1,1)/sqrt3), applied as
+# R_flange = A @ R_wxyz. Established 2026-06-11 (consensus): the recorded quaternion is
+# scalar-FIRST (w,x,y,z); reading it scalar-last ("xyzw") was a ~142deg error that twisted
+# both hands inward and made them interpenetrate. A @ R_wxyz is the only convention that
+# keeps the hands non-colliding (min hand-hand 229mm) AND pointing down at the table (100%).
+A_CORR = Rot.from_quat([-0.53340, 0.53340, 0.53340, 0.38268])  # xyzw of wxyz(0.38268,-0.5334,0.5334,0.5334)
+
+def flange_R(q4):
+    c0, c1, c2, c3 = q4                       # stored scalar-first: w=c0, (x,y,z)=(c1,c2,c3)
+    R_wxyz = Rot.from_quat([c1, c2, c3, c0])
+    return (A_CORR * R_wxyz).as_matrix()       # pre-multiply the constant correction
+
 def solve_arm(P, Q4, name):
     T=len(P); out=np.zeros((T,7)); pe=np.zeros(T); oe=np.zeros(T); q=Q_HOME.copy(); t0=time.time()
+    rng=np.random.RandomState(0)
     for t in range(T):
-        a,b,c,d=Q4[t]; Rt=Rot.from_quat([a,b,c,d]).as_matrix()  # XYZW absolute
+        Rt=flange_R(Q4[t])
         p_t=P[t]
         def resid(qq):
             R,p=fk(qq)
             return np.concatenate([p-p_t, Rot.from_matrix(R@Rt.T).as_rotvec(), 1e-3*(qq-Q_HOME)])
-        sol=least_squares(resid,q,bounds=(LIMITS[:,0],LIMITS[:,1]),xtol=1e-10,ftol=1e-10,max_nfev=120)
-        q=sol.x; out[t]=q; R,p=fk(q)
-        pe[t]=np.linalg.norm(p-p_t); oe[t]=np.linalg.norm(Rot.from_matrix(R@Rt.T).as_rotvec())
+        q_prev=q.copy()
+        def attempt(q0):
+            s=least_squares(resid,q0,bounds=(LIMITS[:,0],LIMITS[:,1]),xtol=1e-12,ftol=1e-12,max_nfev=300)
+            R,p=fk(s.x); return s.x, np.linalg.norm(p-p_t), np.linalg.norm(Rot.from_matrix(R@Rt.T).as_rotvec())
+        q, perr, oerr = attempt(q)              # warm-start from previous frame
+        if perr>1e-3 or oerr>np.radians(1):
+            # trapped: try only SMALL local perturbations of the previous frame (stay continuous).
+            # accept an escape only if it is BOTH reachable AND close to q_prev (no branch jumps);
+            # otherwise keep the smooth warm-start result (a few frames may be slightly off but the
+            # trajectory stays continuous, which matters more for a watchable replay).
+            for s in range(12):
+                c=attempt(np.clip(q_prev+rng.normal(0,0.12,7),LIMITS[:,0],LIMITS[:,1]))
+                if c[1]<1e-3 and c[2]<np.radians(1) and np.linalg.norm(c[0]-q_prev)<0.25:
+                    q,perr,oerr=c; break
+        out[t]=q; pe[t]=perr; oe[t]=oerr
         if t%800==0: print(f"  [{name}] {t}/{T} pos {pe[t]*1000:.2f}mm ori {np.degrees(oe[t]):.2f}deg ({time.time()-t0:.0f}s)",flush=True)
     dq=np.abs(np.diff(out,axis=0))*50.0
     print(f"  [{name}] resid pos max {pe.max()*1000:.2f}mm ori max {np.degrees(oe.max()):.2f}deg | max jspd {np.round(dq.max(0),2)}")
@@ -55,11 +80,11 @@ def main():
     with h5py.File(args.h5,"r") as f:
         src="observations/qpos_arm_{}" if args.source=="qpos" else "actions_arm_{}"
         pl=f[src.format("left")][:]; pr=f[src.format("right")][:]
-    print(f"solving XYZW flange IK for T={len(pl)} frames")
+    print(f"solving flange IK (A @ wxyz convention) for T={len(pl)} frames")
     ql,pel,oel=solve_arm(pl[:,0:3], pl[:,3:7], "left")
     qr,per,oer=solve_arm(pr[:,0:3], pr[:,3:7], "right")
     np.savez(args.out, ik_left=ql, ik_right=qr, pos_err_left=pel, ori_err_left=oel,
-             pos_err_right=per, ori_err_right=oer, convention="xyzw_abs_flange")
+             pos_err_right=per, ori_err_right=oer, convention="A_wxyz_flange")
     print("wrote", args.out)
 
 if __name__=="__main__":
