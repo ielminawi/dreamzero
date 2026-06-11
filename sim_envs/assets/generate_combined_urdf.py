@@ -64,8 +64,10 @@ OUTPUT_DIR = SCRIPT_DIR
 #         about the hand's local x; without it the left hand closed 180deg the wrong way.
 #   (right rpy "1.737739 0.047154 -0.089270" -> y-mirror "-1.737739 0.047154 0.089270"
 #    -> +180deg about root-local Y -> "1.403854 -0.047154 3.052323".)
+# 2026-06-11 left-hand trim (user-confirmed against renders): the left hand sat ~4cm off
+# along the mount-local Y; left y = right-mirrored y (-0.03045) - 0.04.
 DEFAULT_MOUNT_XYZ = {
-    "left": "0.006220897 -0.03045047 0.08067889",
+    "left": "0.006220897 -0.07045047 0.08067889",
     "right": "0.006220897 0.03045047 0.08067889",
 }
 DEFAULT_MOUNT_RPY = {
