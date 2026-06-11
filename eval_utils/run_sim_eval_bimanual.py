@@ -54,27 +54,32 @@ for ext_name in ["isaacsim.asset.importer.urdf", "omni.importer.urdf", "omni.isa
         break
 
 import sim_envs  # noqa: F401 — registers the gym environment
-from sim_envs.franka_orca_bimanual_cfg import (
-    FrankaOrcaBimanualEnvCfg, real_arm_to_sim, sim_arm_to_real,
-)
+from sim_envs.franka_orca_bimanual_cfg import FrankaOrcaBimanualEnvCfg
 from sim_envs.franka_orca_bimanual_env import FrankaOrcaBimanualEnv
 from eval_utils.policy_client import WebsocketClientPolicy
+from eval_utils import ee_ik
 
 
 class DreamZeroBimanualClient:
     """Client that sends bimanual observations to DreamZero and receives 48-dim actions.
 
+    The policy's arm segments are EE POSES, not joint angles (docs/
+    EE_POSE_AND_IK_PIPELINE.md): dims [0:7]/[7:14] of both state and action are
+    [x,y,z,qx,qy,qz,qw] flange poses in the arm base frame (XYZW quat). So:
+      - obs side: arm proprioception = FK(sim joints) -> EE pose in the dataset
+        convention (ee_ik.fk_pose7), NOT the sim joint angles;
+      - action side: each received chunk's arm poses are IK'd (ee_ik.solve_chunk,
+        warm-started from the current sim joints) into Panda joint targets before
+        being applied. Hands (17-dim per side) are real joint angles, passed through.
+
     Observation format sent to server:
-        - observation/aria_rgb_cam: (H, W, 3) uint8
-        - observation/oakd_front_view: (H, W, 3) uint8
-        - observation/state: (48,) float64
-            [left_arm(7), right_arm(7), left_hand(17), right_hand(17)]
+        - observation/full_state: (48,) float64
+            [left_arm EE pose(7), right_arm EE pose(7), left_hand(17), right_hand(17)]
         - prompt: str
         - session_id: str
 
     Action format received:
-        - actions: (N, 48) float32
-            [left_arm(7), right_arm(7), left_hand(17), right_hand(17)]
+        - actions: (N, 48) float32, same layout (arm segments are EE poses)
     """
 
     # Inference image resolution (matches training: 640x480 W×H for aria_rgb_cam)
@@ -91,14 +96,42 @@ class DreamZeroBimanualClient:
         self.open_loop_horizon = open_loop_horizon
         self.actions_from_chunk_completed = 0
         self.pred_action_chunk = None
+        self.joint_chunk = None
         self.session_id = str(uuid.uuid4())
         self._bg = None
         self._bg_inited = False
+        self._new_traj()
+
+    def _new_traj(self):
+        self.traj = {k: [] for k in (
+            "ee_cmd", "q_cmd", "q_meas", "ee_meas", "hand_cmd", "hand_meas",
+            "ik_pos_err", "ik_ori_err")}
 
     def reset(self):
         self.actions_from_chunk_completed = 0
         self.pred_action_chunk = None
+        self.joint_chunk = None
         self.session_id = str(uuid.uuid4())
+        self._new_traj()
+
+    def dump_traj(self, path: str):
+        """Save the per-step trajectory log (EE/joint commanded vs measured) as npz."""
+        arrs = {k: np.asarray(v) for k, v in self.traj.items() if len(v)}
+        np.savez(path, **arrs)
+        # quick tracking summary: command at t vs measurement at t+1
+        if len(self.traj["ee_cmd"]) > 1:
+            cmd = np.asarray(self.traj["ee_cmd"])[:-1]
+            meas = np.asarray(self.traj["ee_meas"])[1:]
+            for side, s in (("L", 0), ("R", 7)):
+                perr = np.linalg.norm(cmd[:, s:s + 3] - meas[:, s:s + 3], axis=1) * 1000
+                print(f"[traj] {side} arm EE tracking |pos err| mean {perr.mean():.1f}mm  "
+                      f"p95 {np.percentile(perr, 95):.1f}mm  max {perr.max():.1f}mm", flush=True)
+            ik_pe = np.asarray(self.traj["ik_pos_err"])
+            if ik_pe.size:
+                print(f"[traj] IK residual max {ik_pe.max() * 1000:.2f}mm "
+                      f"(policy-pose reachability; large => policy asked for unreachable poses)",
+                      flush=True)
+        print(f"[traj] wrote {path}", flush=True)
 
     def _resize_image(self, img: np.ndarray) -> np.ndarray:
         """Resize image to inference resolution with padding."""
@@ -140,6 +173,7 @@ class DreamZeroBimanualClient:
             dict with "action" (48,) and "viz" (combined camera view)
         """
         curr_obs = self._extract_observation(obs)
+        q_now = curr_obs["sim_joints"]  # (14,) raw sim arm joints [left7, right7]
 
         if (
             self.actions_from_chunk_completed == 0
@@ -174,15 +208,34 @@ class DreamZeroBimanualClient:
             result = self.client.infer(request_data)
             actions = result["actions"] if isinstance(result, dict) else result
             assert len(actions.shape) == 2, f"Expected 2D array, got shape {actions.shape}"
-            self.pred_action_chunk = actions
+            self.pred_action_chunk = np.asarray(actions, dtype=np.float64)
 
-        action = np.asarray(self.pred_action_chunk[self.actions_from_chunk_completed]).copy()
+            # The arm segments of the chunk are EE poses -> IK them into Panda joint
+            # targets, warm-started from the CURRENT sim joints so the trajectory is
+            # continuous from where the robot actually is.
+            ql, pel, oel = ee_ik.solve_chunk(self.pred_action_chunk[:, 0:7], q_now[0:7])
+            qr, per, oer = ee_ik.solve_chunk(self.pred_action_chunk[:, 7:14], q_now[7:14])
+            self.joint_chunk = np.concatenate([ql, qr], axis=1)  # (N, 14)
+            self.chunk_ik_pos_err = np.stack([pel, per], axis=1)  # (N, 2)
+            self.chunk_ik_ori_err = np.stack([oel, oer], axis=1)
+            print(f"[ik] chunk solved: pos resid max {self.chunk_ik_pos_err.max()*1000:.2f}mm "
+                  f"ori max {np.degrees(self.chunk_ik_ori_err.max()):.2f}deg", flush=True)
+
+        i = self.actions_from_chunk_completed
+        ee_action = np.asarray(self.pred_action_chunk[i])
+        joints = self.joint_chunk[i]
+        action = np.concatenate([joints, ee_action[14:48]]).astype(np.float64)
         self.actions_from_chunk_completed += 1
 
-        # The policy returns absolute targets in the training/real arm convention; map the arm
-        # joints back to the sim Franka convention before applying (inverse of the state remap).
-        action[0:7] = real_arm_to_sim(action[0:7])
-        action[7:14] = real_arm_to_sim(action[7:14])
+        # per-step trajectory log (cmd at t, measurement at t)
+        self.traj["ee_cmd"].append(ee_action[0:14].copy())
+        self.traj["q_cmd"].append(joints.copy())
+        self.traj["q_meas"].append(q_now.copy())
+        self.traj["ee_meas"].append(curr_obs["state"][0:14].copy())
+        self.traj["hand_cmd"].append(ee_action[14:48].copy())
+        self.traj["hand_meas"].append(curr_obs["state"][14:48].copy())
+        self.traj["ik_pos_err"].append(self.chunk_ik_pos_err[i].copy())
+        self.traj["ik_ori_err"].append(self.chunk_ik_ori_err[i].copy())
 
         # Build visualization
         aria_viz = cv2.resize(curr_obs["aria_rgb_cam"], (320, 240))
@@ -200,23 +253,24 @@ class DreamZeroBimanualClient:
         oakd_front = policy["oakd_front_view"][0].clone().detach().cpu().numpy()
 
         # Proprioception: concatenate to 48-dim state vector.
-        left_arm = policy["left_arm_joint_pos"][0].clone().detach().cpu().numpy()    # (7,) sim conv
-        right_arm = policy["right_arm_joint_pos"][0].clone().detach().cpu().numpy()   # (7,) sim conv
+        left_arm = policy["left_arm_joint_pos"][0].clone().detach().cpu().numpy()    # (7,) sim joints
+        right_arm = policy["right_arm_joint_pos"][0].clone().detach().cpu().numpy()   # (7,) sim joints
         left_hand = policy["left_hand_joint_pos"][0].clone().detach().cpu().numpy()   # (17,)
         right_hand = policy["right_hand_joint_pos"][0].clone().detach().cpu().numpy() # (17,)
 
-        # Map arm joints from the sim Franka convention to the training/real convention so the
-        # policy receives in-distribution proprioception (sim joint4 is negative but the policy
-        # was trained on joint4 ~+0.9; j6 offset too). See docs/SIM_VALIDATION_AND_SCENE.md.
-        left_arm = sim_arm_to_real(left_arm)
-        right_arm = sim_arm_to_real(right_arm)
+        # The policy was trained with EE POSES in the arm slots, not joint angles. Emit
+        # the FK-computed flange pose in the exact dataset convention (position in the
+        # arm base frame, XYZW quat, qx>0 hemisphere) so proprioception is in-distribution.
+        left_ee = ee_ik.fk_pose7(left_arm)
+        right_ee = ee_ik.fk_pose7(right_arm)
 
-        state = np.concatenate([left_arm, right_arm, left_hand, right_hand])  # (48,) real conv
+        state = np.concatenate([left_ee, right_ee, left_hand, right_hand])  # (48,) dataset conv
 
         return {
             "aria_rgb_cam": aria_rgb,
             "oakd_front_view": oakd_front,
             "state": state,
+            "sim_joints": np.concatenate([left_arm, right_arm]),  # (14,) raw, for IK warm start
         }
 
 
@@ -263,6 +317,7 @@ def main():
                 action = torch.tensor(ret["action"], dtype=torch.float32, device=env.device).unsqueeze(0)
                 obs, _ = env.step(action)
 
+            client.dump_traj(str(video_dir / f"episode_{ep}_traj.npz"))
             client.reset()
             video_path = video_dir / f"episode_{ep}.mp4"
             mediapy.write_video(str(video_path), video, fps=50)

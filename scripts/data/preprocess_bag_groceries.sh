@@ -8,7 +8,15 @@ REPO=/cluster/scratch/rjiang/dreamzero
 PY="$REPO/.venv/bin/python"
 
 SRC="${SRC:-/cluster/work/cvg/data/Egoverse/raw_timesynced_h5/bag_groceries}"
-DST="${DST:-$REPO/data/franka_orca_lerobot}"
+# ARM_TO_JOINTS=1: IK the arm EE-pose 7-vectors into Panda joint angles during conversion
+# (true joint-space dataset; see docs/EE_POSE_AND_IK_PIPELINE.md). Defaults to a separate
+# output dir so the EE-space dataset is not clobbered.
+ARM_TO_JOINTS="${ARM_TO_JOINTS:-0}"
+if [ "$ARM_TO_JOINTS" = "1" ]; then
+  DST="${DST:-$REPO/data/franka_orca_lerobot_joints}"
+else
+  DST="${DST:-$REPO/data/franka_orca_lerobot}"
+fi
 FPS="${FPS:-50}"
 TASK="${TASK:-bag the groceries}"
 TARGET_RES="${TARGET_RES:-640x480}"        # both cameras -> single resolution (matches eval client)
@@ -25,6 +33,8 @@ echo "[preprocess] DST=$DST  fps=$FPS  res=$TARGET_RES  workers=$NW  max=${MAX_E
 
 MAXARG=()
 [ -n "$MAX_EPISODES" ] && MAXARG=(--max-episodes "$MAX_EPISODES")
+JOINTARG=()
+[ "$ARM_TO_JOINTS" = "1" ] && JOINTARG=(--arm-ee-to-joints) && echo "[preprocess] ARM EE->JOINT conversion ON"
 
 echo "[stage 1/2] HDF5 -> LeRobot v2 (parquet + mp4)"
 "$PY" scripts/data/convert_h5_to_lerobot.py \
@@ -34,7 +44,8 @@ echo "[stage 1/2] HDF5 -> LeRobot v2 (parquet + mp4)"
   --task "$TASK" \
   --target-resolution "$TARGET_RES" \
   --num-workers "$NW" \
-  "${MAXARG[@]}"
+  "${MAXARG[@]}" \
+  "${JOINTARG[@]}"
 
 echo "[stage 2/2] LeRobot v2 -> GEAR metadata (modality/stats/relative/episodes/tasks)"
 "$PY" scripts/data/convert_lerobot_to_gear.py \

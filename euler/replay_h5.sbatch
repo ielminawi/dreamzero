@@ -28,6 +28,9 @@ args=( run --nv --env TERM=xterm
 args+=( "$DZ_SIF" eval_utils/replay_h5.py --headless --enable_cameras
         --device "${DZ_SIM_DEVICE:-cpu}" --max-steps "${DZ_MAXSTEPS:-2000}" --stride "${DZ_STRIDE:-1}" )
 [ -n "${DZ_H5:-}" ] && args+=( --h5 "$DZ_H5" )
+# Drive the arms from an IK'd joint trajectory (eval_utils/export_xyzw_full.py output)
+# instead of misreading the h5 EE poses as joint angles.
+[ -n "${DZ_JOINTS_NPZ:-}" ] && args+=( --joints-npz "$DZ_JOINTS_NPZ" )
 echo "==> apptainer ${args[*]}"
 apptainer "${args[@]}"
 echo "==> replay exit: $?"

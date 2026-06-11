@@ -56,6 +56,9 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+# repo root on sys.path so eval_utils.ee_ik is importable when run as a script
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
 
@@ -109,6 +112,30 @@ def read_and_concat(h5f: h5py.File, keys: list[str]) -> np.ndarray:
             arr = arr.reshape(-1, 1)
         arrays.append(arr)
     return np.concatenate(arrays, axis=-1)
+
+
+def arm_ee_to_joints(vec48: np.ndarray, ep_idx: int, what: str) -> np.ndarray:
+    """Replace the two arm EE-pose blocks of a (T, 48) array with IK'd joint angles.
+
+    The raw h5 arm 7-vectors are flange poses [x,y,z,qx,qy,qz,qw] in the arm base
+    frame (docs/EE_POSE_AND_IK_PIPELINE.md), NOT joint angles. This converts them to
+    7 Panda joint angles via warm-started least-squares IK (eval_utils/ee_ik.py), so
+    the resulting dataset is a true joint-space dataset: state/action arm dims become
+    joint angles that can drive the sim/robot directly. Hands are untouched.
+    Layout stays [arm_left(7), arm_right(7), hand_left(17), hand_right(17)].
+    """
+    from eval_utils.ee_ik import solve_chunk, Q_HOME
+
+    out = vec48.copy()
+    for name, sl in (("left", slice(0, 7)), ("right", slice(7, 14))):
+        joints, pos_err, ori_err = solve_chunk(vec48[:, sl], Q_HOME)
+        out[:, sl] = joints
+        max_mm = float(pos_err.max()) * 1000.0
+        max_deg = float(np.degrees(ori_err.max()))
+        if max_mm > 5.0 or max_deg > 2.0:
+            log.warning("ep %d %s %s arm IK residual high: pos %.2f mm ori %.2f deg",
+                        ep_idx, what, name, max_mm, max_deg)
+    return out
 
 
 def encode_video(
@@ -246,6 +273,7 @@ def convert_episode(
     fps: float,
     task: str,
     target_resolution: tuple[int, int] | None = None,
+    arm_to_joints: bool = False,
 ) -> int:
     """Convert a single episode. Returns the number of frames."""
     ep_idx, h5_path = args_tuple
@@ -254,6 +282,9 @@ def convert_episode(
     with h5py.File(h5_path, "r") as h5f:
         state = read_and_concat(h5f, STATE_KEYS)
         action = read_and_concat(h5f, ACTION_KEYS)
+        if arm_to_joints:
+            state = arm_ee_to_joints(state, ep_idx, "state")
+            action = arm_ee_to_joints(action, ep_idx, "action")
         T = state.shape[0]
 
         # --- Parquet (global index fixed up later) ---
@@ -288,6 +319,7 @@ def convert(
     max_episodes: int | None = None,
     num_workers: int | None = None,
     target_resolution: tuple[int, int] | None = None,
+    arm_to_joints: bool = False,
 ) -> None:
     h5_files = get_h5_files(input_dir)
     if not h5_files:
@@ -330,7 +362,11 @@ def convert(
     if num_workers is None:
         num_workers = min(os.cpu_count() or 1, len(h5_files))
 
-    worker_fn = partial(convert_episode, output_dir=output_dir, fps=fps, task=task, target_resolution=target_resolution)
+    if arm_to_joints:
+        log.info("ARM EE->JOINT conversion ON: arm dims of state/action will be IK'd to "
+                 "Panda joint angles (adds ~%d IK solves per episode)", 4 * 4000)
+    worker_fn = partial(convert_episode, output_dir=output_dir, fps=fps, task=task,
+                        target_resolution=target_resolution, arm_to_joints=arm_to_joints)
     indexed_files = list(enumerate(h5_files))
 
     if num_workers <= 1:
@@ -407,6 +443,14 @@ def main():
         "--target-resolution", type=str, default=None,
         help="Resize all cameras to WxH (e.g. '640x480'). Required when cameras have different resolutions.",
     )
+    parser.add_argument(
+        "--arm-ee-to-joints", action="store_true", default=False,
+        help="Convert the arm EE-pose 7-vectors (x,y,z + XYZW quat flange pose; the raw h5 "
+             "'qpos_arm'/'actions_arm' fields are poses, not joints) into Panda joint angles "
+             "via IK, producing a joint-space dataset. Downstream q99/relative stats are "
+             "recomputed from the converted data by convert_lerobot_to_gear.py, so joint "
+             "actions get normalized correctly with no further changes.",
+    )
     args = parser.parse_args()
 
     target_resolution = None
@@ -422,6 +466,7 @@ def main():
         max_episodes=args.max_episodes,
         num_workers=args.num_workers,
         target_resolution=target_resolution,
+        arm_to_joints=args.arm_ee_to_joints,
     )
 
 
