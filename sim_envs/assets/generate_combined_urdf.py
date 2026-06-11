@@ -56,21 +56,20 @@ OUTPUT_DIR = SCRIPT_DIR
 # pose. Derived numerically from measured zero-pose transforms (mount-local =
 # R_gavin^T * desired world offset). Previous USD-extracted values:
 #   left  "0.0577817 -0.0810538 0.0690376"   right "0.00630262 0.0702546 0.0842720"
-# Left mount: xyz = right xyz with y negated; rpy = the original hand-tuned left value
-# "1.832292 0.0 3.141593" (yaw -pi/2). This is the best practical mirror of the right hand
-# under the CORRECT orientation convention (A @ wxyz; see eval_utils/export_xyzw_full.py):
-# it points the left hand down 100% of the time and gives the lowest approach-axis error vs
-# the y-mirror of the right hand (~22deg, the residual being genuine task asymmetry).
-# NOTE: an earlier "option Y" rpy ("1.403854 -0.047154 3.052323") was tuned to fix the left
-# hand's apparent closing direction, but that symptom was caused by the (then-wrong) xyzw
-# orientation misread, not the mount; option Y double-flips the already-mirrored chirality
-# hand and is wrong. With the orientation fixed, the original value is correct.
+# Left mount (empirically confirmed 2026-06-11, render option "Y"):
+#   xyz = right xyz with y negated.
+#   rpy = the y-mirror of the right rpy (roll & yaw negated), THEN rotated 180deg about the
+#         hand-root LOCAL Y axis. The extra 180deg is required because the left hand is the
+#         proper chirality xacro hand (orcahand_left.urdf), whose root frame is reflected
+#         about the hand's local x; without it the left hand closed 180deg the wrong way.
+#   (right rpy "1.737739 0.047154 -0.089270" -> y-mirror "-1.737739 0.047154 0.089270"
+#    -> +180deg about root-local Y -> "1.403854 -0.047154 3.052323".)
 DEFAULT_MOUNT_XYZ = {
     "left": "0.006220897 -0.03045047 0.08067889",
     "right": "0.006220897 0.03045047 0.08067889",
 }
 DEFAULT_MOUNT_RPY = {
-    "left": "1.832292 0.0 3.141593",
+    "left": "1.403854 -0.047154 3.052323",
     "right": "1.737739 0.047154 -0.089270",
 }
 
