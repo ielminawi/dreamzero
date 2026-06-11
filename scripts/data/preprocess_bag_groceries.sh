@@ -34,8 +34,13 @@ echo "[preprocess] DST=$DST  fps=$FPS  res=$TARGET_RES  workers=$NW  max=${MAX_E
 MAXARG=()
 [ -n "$MAX_EPISODES" ] && MAXARG=(--max-episodes "$MAX_EPISODES")
 JOINTARG=()
+# DEGLITCH=1 (default ON for joint-space runs): interpolate single-frame arm tracking
+# teleports before stats/IK; without it raw glitches (up to tens of meters) destroy the
+# relative-action q99 stats, catastrophically in joint space (IK branch slams).
+DEGLITCH="${DEGLITCH:-$ARM_TO_JOINTS}"
+[ "$DEGLITCH" = "1" ] && JOINTARG+=(--deglitch-arms) && echo "[preprocess] arm deglitch ON"
 if [ "$ARM_TO_JOINTS" = "1" ]; then
-  JOINTARG=(--arm-ee-to-joints)
+  JOINTARG+=(--arm-ee-to-joints)
   echo "[preprocess] ARM EE->JOINT conversion ON"
   # Videos are identical to the EE-space dataset's (only state/action change):
   # skip re-encoding and symlink them if the EE dataset exists.

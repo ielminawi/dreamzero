@@ -114,6 +114,44 @@ def read_and_concat(h5f: h5py.File, keys: list[str]) -> np.ndarray:
     return np.concatenate(arrays, axis=-1)
 
 
+def deglitch_arm_ee(vec48: np.ndarray, ep_idx: int, what: str, thr: float = 0.05) -> tuple[np.ndarray, int]:
+    """Remove single-frame tracking glitches from the arm EE-pose blocks of a (T,48) array.
+
+    The raw streams contain occasional teleports (frame-to-frame EE jumps up to tens of
+    meters in 20 ms — physically impossible; worst real Panda EE speed is ~1.7 m/s =
+    0.034 m/frame at 50 fps). A frame is flagged when its position deviates from the
+    local median (window 5) by more than `thr` meters; flagged frames are linearly
+    interpolated from clean neighbors (quat renormalized). Without this, glitches blow
+    up q99/relative stats — catastrophically so after EE->joint IK, where an unreachable
+    teleport target slams joints across the workspace.
+    Returns (cleaned array, number of frames fixed).
+    """
+    from scipy.ndimage import median_filter
+
+    out = vec48.copy()
+    n_fixed = 0
+    for name, a, b in (("left", 0, 7), ("right", 7, 14)):
+        arr = out[:, a:b]
+        med = median_filter(arr[:, :3], size=(5, 1), mode="nearest")
+        bad = np.linalg.norm(arr[:, :3] - med, axis=1) > thr
+        if not bad.any():
+            continue
+        good = np.where(~bad)[0]
+        if len(good) < 2:
+            log.warning("ep %d %s %s arm: too few clean frames to deglitch", ep_idx, what, name)
+            continue
+        bad_idx = np.where(bad)[0]
+        for d in range(arr.shape[1]):
+            arr[bad_idx, d] = np.interp(bad_idx, good, arr[good, d])
+        qn = np.linalg.norm(arr[bad_idx, 3:7], axis=1, keepdims=True)
+        arr[bad_idx, 3:7] /= np.maximum(qn, 1e-8)
+        n_fixed += int(bad.sum())
+    if n_fixed:
+        log.info("ep %d %s: deglitched %d arm frames (>%.0fmm off local median)",
+                 ep_idx, what, n_fixed, thr * 1000)
+    return out, n_fixed
+
+
 def arm_ee_to_joints(vec48: np.ndarray, ep_idx: int, what: str) -> np.ndarray:
     """Replace the two arm EE-pose blocks of a (T, 48) array with IK'd joint angles.
 
@@ -275,6 +313,7 @@ def convert_episode(
     target_resolution: tuple[int, int] | None = None,
     arm_to_joints: bool = False,
     skip_videos: bool = False,
+    deglitch: bool = False,
 ) -> int:
     """Convert a single episode. Returns the number of frames."""
     ep_idx, h5_path = args_tuple
@@ -283,6 +322,9 @@ def convert_episode(
     with h5py.File(h5_path, "r") as h5f:
         state = read_and_concat(h5f, STATE_KEYS)
         action = read_and_concat(h5f, ACTION_KEYS)
+        if deglitch:
+            state, _ = deglitch_arm_ee(state, ep_idx, "state")
+            action, _ = deglitch_arm_ee(action, ep_idx, "action")
         if arm_to_joints:
             state = arm_ee_to_joints(state, ep_idx, "state")
             action = arm_ee_to_joints(action, ep_idx, "action")
@@ -324,6 +366,7 @@ def convert(
     target_resolution: tuple[int, int] | None = None,
     arm_to_joints: bool = False,
     skip_videos: bool = False,
+    deglitch: bool = False,
 ) -> None:
     h5_files = get_h5_files(input_dir)
     if not h5_files:
@@ -371,7 +414,7 @@ def convert(
                  "Panda joint angles (adds ~%d IK solves per episode)", 4 * 4000)
     worker_fn = partial(convert_episode, output_dir=output_dir, fps=fps, task=task,
                         target_resolution=target_resolution, arm_to_joints=arm_to_joints,
-                        skip_videos=skip_videos)
+                        skip_videos=skip_videos, deglitch=deglitch)
     indexed_files = list(enumerate(h5_files))
 
     if num_workers <= 1:
@@ -449,6 +492,12 @@ def main():
         help="Resize all cameras to WxH (e.g. '640x480'). Required when cameras have different resolutions.",
     )
     parser.add_argument(
+        "--deglitch-arms", action="store_true", default=False,
+        help="Interpolate over single-frame tracking glitches in the arm EE-pose streams "
+             "(>5cm off the local median; raw data has teleports up to tens of meters that "
+             "corrupt q99/relative stats, catastrophically after EE->joint IK).",
+    )
+    parser.add_argument(
         "--skip-videos", action="store_true", default=False,
         help="Skip video encoding (parquet + meta only). Use when the videos already exist "
              "from a previous conversion of the same source (e.g. an EE->joint re-conversion) "
@@ -479,6 +528,7 @@ def main():
         target_resolution=target_resolution,
         arm_to_joints=args.arm_ee_to_joints,
         skip_videos=args.skip_videos,
+        deglitch=args.deglitch_arms,
     )
 
 
