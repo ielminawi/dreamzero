@@ -79,6 +79,9 @@ class WANPolicyHeadConfig(PretrainedConfig):
     init_lora_weights: str = field(default="kaiming", metadata={"help": "LoRA initialization method."})
     train_architecture: str= field(default="lora", metadata={"help": "Train architecture."})
     skip_component_loading: bool = field(default=False, metadata={"help": "Skip loading individual component weights (used when loading from full pretrained model)."})
+    unfreeze_top_k_blocks: int = field(default=0, metadata={"help": "If >0, additionally FULL-finetune the top-K DiT blocks (on top of LoRA). Strengthens action<->vision coupling that a frozen-backbone LoRA cannot. 0 = original LoRA-only behavior."})
+    action_loss_segment_slices: list = field(default=None, metadata={"help": "Optional list of [start,end) dim slices (e.g. [[0,7],[7,14],[14,31],[31,48]] for arm_l/arm_r/hand_l/hand_r). If set, the action loss is the WEIGHTED MEAN OF PER-SEGMENT MEANS instead of a flat mean over all dims, so a segment's contribution is independent of its dim count (flat mean lets the 34 hand dims dominate the 14 arm dims ~71/29). None = original flat-mean behavior."})
+    action_loss_segment_weights: list = field(default=None, metadata={"help": "Per-segment weights matching action_loss_segment_slices (normalized by their sum). None = equal weights."})
 
     use_gradient_checkpointing: bool = field(default=True, metadata={"help": "Whether to use gradient checkpointing."})
     qformer_cfg: dict = field(default=None, metadata={"help": "Qformer configuration."})
@@ -344,6 +347,7 @@ class WANPolicyHead(ActionHead):
             self.model.state_encoder.requires_grad_(True)
             self.model.action_encoder.requires_grad_(True)
             self.model.action_decoder.requires_grad_(True)
+            self._maybe_unfreeze_top_blocks()
         elif self.train_architecture == "lora" and self.defer_lora_injection:
             print("Deferring LoRA injection until after pretrained weights are loaded")
         else:
@@ -372,6 +376,28 @@ class WANPolicyHead(ActionHead):
         print(f"Trainable parameters in diffusion model: {trainable_total:,}")
         # print(trainable_params)
 
+    def _maybe_unfreeze_top_blocks(self):
+        """Optionally FULL-finetune the top-K DiT blocks (in addition to LoRA), giving the
+        action<->vision attention real capacity that a frozen-backbone LoRA cannot. Default 0 = no-op."""
+        k = int(getattr(self.config, "unfreeze_top_k_blocks", 0) or 0)
+        if k <= 0:
+            return
+        dit = self.model
+        # Unwrap the PEFT wrapper to reach the raw DiT blocks (PeftModel -> LoraModel -> WanModel).
+        if hasattr(dit, "base_model") and hasattr(dit.base_model, "model"):
+            dit = dit.base_model.model
+        if not hasattr(dit, "blocks"):
+            print(f"[unfreeze] WARNING: could not locate .blocks on DiT ({type(dit).__name__}); skipping")
+            return
+        n = len(dit.blocks)
+        k = min(k, n)
+        cnt = 0
+        for blk in dit.blocks[n - k:]:
+            for p in blk.parameters():
+                p.requires_grad = True
+                cnt += p.numel()
+        print(f"[unfreeze] FULL-finetuning top {k}/{n} DiT blocks ({cnt:,} params now trainable)")
+
 
     def inject_lora_after_loading(self):
         """
@@ -394,7 +420,8 @@ class WANPolicyHead(ActionHead):
             self.model.action_decoder.requires_grad_(True)
             # self.model.registers.requires_grad_(True)
             # self.model.time_modality_projection.requires_grad_(True)
-            
+            self._maybe_unfreeze_top_blocks()
+
             self.text_encoder.requires_grad_(False)
             self.image_encoder.requires_grad_(False)
             self.vae.requires_grad_(False)
@@ -746,12 +773,32 @@ class WANPolicyHead(ActionHead):
             weight_dynamics = dynamics_loss_per_sample * self.scheduler.training_weight(timestep.flatten(0, 1)).unflatten(0, (noise.shape[0], noise.shape[1])).to(self._device)
             weighted_dynamics_loss = weight_dynamics.mean()
             
+            seg_losses = {}
             if actions.numel() > 0:
                 action_loss_per_sample = torch.nn.functional.mse_loss(
                     action_noise_pred.float(), training_target_action.float(), reduction='none'
                 ) * action_mask  # shape: [B, ...]
                 action_loss_per_sample = has_real_action[:, None].float() * action_loss_per_sample  # apply has_real_action
-                weight_action = action_loss_per_sample.mean(dim=2) * self.scheduler.training_weight(
+                seg_slices = getattr(self.config, "action_loss_segment_slices", None)
+                if seg_slices:
+                    # weighted mean of per-segment means: each segment contributes per its
+                    # weight regardless of dim count (flat mean over 48 dims lets the 34
+                    # hand dims dominate the 14 arm dims)
+                    seg_slices = [(int(a), int(b)) for a, b in seg_slices]  # hydra ListConfig -> py
+                    seg_w = getattr(self.config, "action_loss_segment_weights", None)
+                    seg_w = [float(w) for w in seg_w] if seg_w else [1.0] * len(seg_slices)
+                    seg_w = torch.tensor(seg_w, device=action_loss_per_sample.device,
+                                         dtype=action_loss_per_sample.dtype)
+                    seg_means = torch.stack(
+                        [action_loss_per_sample[..., a:b].mean(dim=2) for a, b in seg_slices], dim=0
+                    )  # [S, B, T]
+                    per_sample_action_loss = (seg_w[:, None, None] * seg_means).sum(0) / seg_w.sum()
+                    # keys end in "_loss" so BaseTrainer.compute_loss auto-logs *_avg
+                    for i in range(len(seg_slices)):
+                        seg_losses[f"action_seg{i}_loss"] = seg_means[i].detach().mean()
+                else:
+                    per_sample_action_loss = action_loss_per_sample.mean(dim=2)
+                weight_action = per_sample_action_loss * self.scheduler.training_weight(
                     timestep_action.flatten(0, 1),
                 ).unflatten(0, (noise_action.shape[0], noise_action.shape[1])).to(self._device)
                 weighted_action_loss = weight_action.mean()
@@ -766,6 +813,7 @@ class WANPolicyHead(ActionHead):
             "loss": loss,
             "dynamics_loss": weighted_dynamics_loss,
             "action_loss": weighted_action_loss,
+            **seg_losses,
         }
 
         return BatchFeature(data=output_dict)
