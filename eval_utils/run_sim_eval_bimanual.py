@@ -181,8 +181,8 @@ class DreamZeroBimanualClient:
 
         # The policy returns absolute targets in the training/real arm convention; map the arm
         # joints back to the sim Franka convention before applying (inverse of the state remap).
-        action[0:7] = real_arm_to_sim(action[0:7])
-        action[7:14] = real_arm_to_sim(action[7:14])
+        action[0:7] = real_arm_to_sim(action[0:7], "left")
+        action[7:14] = real_arm_to_sim(action[7:14], "right")
 
         # Build visualization
         aria_viz = cv2.resize(curr_obs["aria_rgb_cam"], (320, 240))
@@ -207,9 +207,9 @@ class DreamZeroBimanualClient:
 
         # Map arm joints from the sim Franka convention to the training/real convention so the
         # policy receives in-distribution proprioception (sim joint4 is negative but the policy
-        # was trained on joint4 ~+0.9; j6 offset too). See docs/SIM_VALIDATION_AND_SCENE.md.
-        left_arm = sim_arm_to_real(left_arm)
-        right_arm = sim_arm_to_real(right_arm)
+        # was trained on joint4 ~+0.9). See ARM_SIM_FROM_REAL in the env config.
+        left_arm = sim_arm_to_real(left_arm, "left")
+        right_arm = sim_arm_to_real(right_arm, "right")
 
         state = np.concatenate([left_arm, right_arm, left_hand, right_hand])  # (48,) real conv
 

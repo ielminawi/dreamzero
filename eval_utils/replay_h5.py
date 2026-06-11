@@ -26,7 +26,7 @@ parser.add_argument("--stride", type=int, default=1, help="subsample recorded fr
 parser.add_argument("--init-to-first", action="store_true", default=True,
                     help="teleport sim joints to recorded action[0] before replay (avoid a startup jump)")
 parser.add_argument("--remap-arm", action="store_true", default=True,
-                    help="apply inferred real->sim arm joint-convention remap (j4-=pi, j6+=pi)")
+                    help="apply configured real->sim arm joint-convention remap")
 parser.add_argument("--no-remap-arm", dest="remap_arm", action="store_false")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
@@ -72,14 +72,14 @@ def main():
     T = min(len(al), len(ar), len(hl), len(hr))
     log(f"episode length T={T}; arm{al.shape[1]} hand{hl.shape[1]} per side")
     al = al[:T]; ar = ar[:T]; hl = hl[:T]; hr = hr[:T]
-    # Apply the inferred arm joint-convention remap (real -> sim): j4 -= pi, j6 += pi.
+    # Apply the configured arm joint-convention remap (real -> sim).
     # Without this the recorded arm joint4 (~+0.9) is outside the sim limit [-3.07,-0.07]
     # and clamps (arms go out of view). Disable with --no-remap-arm to see the broken case.
     from sim_envs.franka_orca_bimanual_cfg import real_arm_to_sim, ARM_SIM_FROM_REAL
     if args.remap_arm:
         log(f"APPLYING arm remap real->sim: ARM_SIM_FROM_REAL={ARM_SIM_FROM_REAL}")
-        al = np.stack([real_arm_to_sim(a) for a in al]).astype(np.float32)
-        ar = np.stack([real_arm_to_sim(a) for a in ar]).astype(np.float32)
+        al = np.stack([real_arm_to_sim(a, "left") for a in al]).astype(np.float32)
+        ar = np.stack([real_arm_to_sim(a, "right") for a in ar]).astype(np.float32)
     else:
         log("NO arm remap (raw recorded actions)")
     # full 48-dim action in TRAINING layout [L_arm, R_arm, L_hand, R_hand]

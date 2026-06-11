@@ -21,8 +21,6 @@ from __future__ import annotations
 
 import os
 
-import numpy as np
-
 import isaaclab.sim as sim_utils
 import isaaclab.envs.mdp as mdp
 from isaaclab.actuators import ImplicitActuatorCfg
@@ -33,47 +31,37 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import CameraCfg
 from isaaclab.utils import configclass
 
-def _look_at_quat(eye, target, up=(0.0, 0.0, 1.0)):
-    """Compute (w, x, y, z) quaternion for an OpenGL camera at *eye* looking at *target*."""
-    eye, target, up = np.asarray(eye, np.float64), np.asarray(target, np.float64), np.asarray(up, np.float64)
-    fwd = target - eye
-    fwd /= np.linalg.norm(fwd)
-    z = -fwd
-    if abs(np.dot(up, z)) > 0.999:
-        up = np.array([-1.0, 0.0, 0.0])
-    x = np.cross(up, z); x /= np.linalg.norm(x)
-    y = np.cross(z, x)
-    R = np.column_stack([x, y, z])
-    tr = R[0, 0] + R[1, 1] + R[2, 2]
-    if tr > 0:
-        s = 2.0 * np.sqrt(tr + 1.0)
-        w, qx, qy, qz = 0.25 * s, (R[2, 1] - R[1, 2]) / s, (R[0, 2] - R[2, 0]) / s, (R[1, 0] - R[0, 1]) / s
-    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
-        s = 2.0 * np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2])
-        w, qx, qy, qz = (R[2, 1] - R[1, 2]) / s, 0.25 * s, (R[0, 1] + R[1, 0]) / s, (R[0, 2] + R[2, 0]) / s
-    elif R[1, 1] > R[2, 2]:
-        s = 2.0 * np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2])
-        w, qx, qy, qz = (R[0, 2] - R[2, 0]) / s, (R[0, 1] + R[1, 0]) / s, 0.25 * s, (R[1, 2] + R[2, 1]) / s
-    else:
-        s = 2.0 * np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1])
-        w, qx, qy, qz = (R[1, 0] - R[0, 1]) / s, (R[0, 2] + R[2, 0]) / s, (R[1, 2] + R[2, 1]) / s, 0.25 * s
-    return (float(w), float(qx), float(qy), float(qz))
+# Camera mounting — taken DIRECTLY from configs/franka_orca_calibration.json extrinsics
+# (cam->arm_base), NOT a look-at heuristic.
+#   pos = arm_base + [tx, -ty, tz]   (calib Y is flipped vs the sim base frame)
+#   rot = the calibration rotation converted to OpenGL (w, x, y, z); this faithfully
+#         reproduces the real camera's optical axis AND roll.
+# Verified: these reproduce the calibration optical axis to 3 decimals — aria looks
+# 53.7deg below horizontal, oak-d 56.0deg (both in front of and above the workspace).
+#
+# WARNING: do NOT replace these with a _look_at_quat(eye, workspace_target) heuristic.
+# Commit 57bc624 "camera" did exactly that and it (a) drifted the eye BEHIND the arm
+# bases (aria X +0.204 -> -0.250), (b) flattened the aria pitch to ~27deg, and (c)
+# discarded the calibrated roll — so neither sim camera matched the real recording.
+_ARIA_EYE = (0.204, -0.051, 0.434)            # left_cam extrinsics -> aria_rgb_cam
+_ARIA_ROT = (0.660, 0.230, -0.210, -0.683)    # (w,x,y,z) OpenGL, from left_cam rotation
+_OAKD_EYE = (0.175, -0.040, 0.469)            # right_cam extrinsics -> oakd_front_view
+_OAKD_ROT = (0.678, 0.235, -0.175, -0.674)    # (w,x,y,z) OpenGL, from right_cam rotation
 
+# Arm separation on Y. The calibration file says 0.6127, but that is a heavy UNDERESTIMATE
+# (user determination 2026-06-11 after comparing renders at 61/70/80/90cm against the real
+# rig): the real arms stand ~80cm apart. Do not blindly trust
+# configs/franka_orca_calibration.json's arm_separation_meters / left_base_to_right_base.
+ARM_SEPARATION_Y = 0.80
 
-# Camera positions from calibration extrinsics (cam→base).
-# Calibration gives camera pos relative to arm base; Y axis is flipped in calib.
-# Camera Y = 0 (centered between arms), Z ≈ 0.45 from calibration.
-_ARIA_EYE = (-0.25, 0.0, 0.45)
-_WORKSPACE_TARGET = (0.35, 0.0, 0.15)
-# oak-d front view: the real recording looks DOWN at the table (~50deg below horizontal,
-# seeing the tops of the objects), whereas a level camera (~27deg) sees them from the side
-# and the table recedes to a horizon. Use a higher eye + lower target for a top-down view
-# matching the training frame (tuned vs output/sim_vs_train_oakd*.png).
-_OAKD_EYE = (-0.05, 0.0, 0.60)
-_OAKD_TARGET = (0.40, 0.0, 0.06)
-
-# Arm separation from calibration: ~61cm apart on Y-axis
-ARM_SEPARATION_Y = 0.6127
+# Base placement: the h5 "left" arm stands at +Y, the "right" arm at -Y (the sim world
+# X axis points forward into the workspace, so +Y is image-left for the front cameras...
+# but the recorded data's left/right labels are the OPPOSITE side). Verified empirically
+# 2026-06-09 with the base-swap diagnostic replay (left/right base positions exchanged,
+# commands NOT exchanged, cameras unchanged): only this arrangement reproduces the real
+# aria/oak-d videos. Do NOT "fix" this back to left=-Y by symmetry intuition.
+_LEFT_BASE_POS = (0.0, +ARM_SEPARATION_Y / 2, 0.0)
+_RIGHT_BASE_POS = (0.0, -ARM_SEPARATION_Y / 2, 0.0)
 
 # Table top height (table cuboid is 0.05 thick, centered at z=0.025 -> top at 0.05).
 # Module-level (NOT a scene-class attribute: InteractiveSceneCfg treats every class
@@ -98,28 +86,60 @@ RIGHT_URDF = os.path.join(_ASSETS_DIR, "franka_orca_right.urdf")
 
 # ---------------------------------------------------------------------------
 # Arm joint-convention remap (sim Franka URDF  <->  training/real data convention)
+#
 # The recorded teleop/training qpos use a different Franka convention than the standard
-# sim URDF: real joint4 is POSITIVE (~+0.9) but the sim panda_joint4 limit is [-3.07,-0.07],
-# and joint6 is offset too. Inferred (from 14k frames + home-pose consistency) as +/- pi
-# offsets on j4 and j6 (a known Franka URDF/DH convention difference):
-#     sim = real + ARM_SIM_FROM_REAL   (per arm joint, training order j1..j7)
+# sim URDF (raw j4 ~ +0.95 is outside any real Panda's range). The mapping is a PER-ARM,
+# PER-JOINT affine map (the two arms are recorded in DIFFERENT conventions — a shared
+# mapping provably cannot fit both):
+#     sim_i = sign_i * real_i + offset_i        (per joint, training order j1..j7)
+#
+# Established 2026-06-10 by systematic search (eval_utils/search_arm_convention.py:
+# brute force over per-joint sign + pi/4-grid offsets, scored against hand-landmark
+# pixels labelled in the REAL h5 frames + camera-free physical gates), confirmed by
+# Isaac teleport-renders at 10 pose-diverse frames (eval_utils/multi_hypothesis_frame0.py,
+# output/hyp_final_20260610): elbows-up / forearm-plunging / hand-down configuration
+# matches the real video on both arms (e.g. the right forearm crossing close past the
+# oak-d camera at t=1809, the descending right wrist at t=3417).
+#
+# The PREVIOUS shared remap [-pi/4,0,0,-pi,0,*,0] is disproven: it folds both arms up
+# high (flange z~0.5) so the hands never even enter either camera view, while the real
+# hands work on the table the whole episode (output/snapshot_10frames_20260610).
+#
+# Known residual (~5-10 cm at the flange, structurally correct): the calibration's
+# right-base offset (+5.5 cm z, -6 cm x vs left, configs/franka_orca_calibration.json)
+# is not yet modelled, the aria camera is a fisheye approximated by a wide pinhole, and
+# the true offsets may sit slightly off the pi/4 grid. Refine against renders, not FK.
+#
 # Use real_arm_to_sim() before applying a real-convention action to the sim, and
-# sim_arm_to_real() before sending sim proprioception to the policy. See
-# docs/SIM_VALIDATION_AND_SCENE.md. (Verify by replaying remapped recorded actions.)
+# sim_arm_to_real() before sending sim proprioception to the policy.
 import math as _math
-ARM_SIM_FROM_REAL = [0.0, 0.0, 0.0, -_math.pi, 0.0, +_math.pi, 0.0]
+_PI = _math.pi
+ARM_SIM_FROM_REAL = {
+    # sign (+1/-1) and offset (rad) per joint j1..j7
+    "left": {
+        "sign":   [-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, 1.0],
+        "offset": [_PI / 4, _PI / 4, -_PI / 4, -_PI / 4, -3 * _PI / 4, _PI, 0.0],
+    },
+    "right": {
+        "sign":   [1.0, -1.0, 1.0, -1.0, -1.0, -1.0, 1.0],
+        "offset": [-_PI / 4, _PI / 2, _PI / 4, -_PI / 4, _PI / 4, 0.0, 0.0],
+    },
+}
 
 
-def real_arm_to_sim(arm7):
+def real_arm_to_sim(arm7, side="left"):
     """Map a 7-DOF arm vector from training/real convention to sim URDF convention."""
     import numpy as _np
-    return _np.asarray(arm7) + _np.asarray(ARM_SIM_FROM_REAL)
+    c = ARM_SIM_FROM_REAL[side]
+    return _np.asarray(arm7, dtype=float) * _np.asarray(c["sign"]) + _np.asarray(c["offset"])
 
 
-def sim_arm_to_real(arm7):
+def sim_arm_to_real(arm7, side="left"):
     """Map a 7-DOF arm vector from sim URDF convention to training/real convention."""
     import numpy as _np
-    return _np.asarray(arm7) - _np.asarray(ARM_SIM_FROM_REAL)
+    c = ARM_SIM_FROM_REAL[side]
+    # inverse of x -> s*x + o with s in {+1,-1}:  x -> s*(x - o)
+    return (_np.asarray(arm7, dtype=float) - _np.asarray(c["offset"])) * _np.asarray(c["sign"])
 
 
 # Joint name expressions for actuator config (regex — order irrelevant, only assigns gains)
@@ -307,7 +327,7 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
-            pos=(0.0, -ARM_SEPARATION_Y / 2, 0.0),
+            pos=_LEFT_BASE_POS,
             joint_pos={
                 # Arm joints — default home position
                 "panda_joint1": 0.0,
@@ -354,7 +374,7 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
-            pos=(0.0, ARM_SEPARATION_Y / 2, 0.0),
+            pos=_RIGHT_BASE_POS,
             joint_pos={
                 "panda_joint1": 0.0,
                 "panda_joint2": -0.569,
@@ -404,7 +424,7 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
         ),
         offset=CameraCfg.OffsetCfg(
             pos=_ARIA_EYE,
-            rot=_look_at_quat(_ARIA_EYE, _WORKSPACE_TARGET),
+            rot=_ARIA_ROT,
             convention="opengl",
         ),
     )
@@ -430,7 +450,7 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
         ),
         offset=CameraCfg.OffsetCfg(
             pos=_OAKD_EYE,
-            rot=_look_at_quat(_OAKD_EYE, _OAKD_TARGET),
+            rot=_OAKD_ROT,
             convention="opengl",
         ),
     )
