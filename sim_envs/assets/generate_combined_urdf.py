@@ -32,7 +32,58 @@ from xml.dom import minidom
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ORCA_URDF_PATH = os.path.join(SCRIPT_DIR, "orcahand_description", "models", "urdf", "orcahand_right.urdf")
+# Proper LEFT hand URDF, generated from the upstream xacro with the chirality flag (which
+# correctly flips joint AXES + per-joint rpy, not just mesh scale). The old in-script
+# mirror_orca_hand_to_left() did NOT flip axes, so the left thumb landed on the wrong side
+# and finger joints moved erratically. orcahand_left.urdf is checked in (sim_envs/assets/);
+# regenerate it from the upstream xacro with:
+#   ~/.venvs/dz_h5/bin/xacro orcahand_description/models/urdf/orcahand.urdf.xacro \
+#       prefix:=left_ chirality:=left -o sim_envs/assets/orcahand_left.urdf
+ORCA_LEFT_URDF_PATH = os.path.join(SCRIPT_DIR, "orcahand_left.urdf")
 OUTPUT_DIR = SCRIPT_DIR
+
+# Extracted from dual_franka_mounted_visual.usda:
+#   panda_link8 -> Mounted_Gavin -> Mounted_Orca
+#
+# The mounted USD uses orca_v1, whose root is at the tower. The generated URDF
+# uses orcahand_description, whose root is offset from the tower, so the xyz
+# values below are corrected to mount the URDF root while preserving the USD
+# tower pose.
+# 2026-06-11 re-trim (user-driven, against zero-pose renders): the USD-extracted
+# values put the LEFT hand ~5cm outboard of its arm axis (left x=0.0578 vs right
+# x=0.0063) and both hands ~8cm behind the flange. New values = (a) left re-centered
+# to exactly mirror the right, (b) BOTH hands shifted +4cm world-forward at zero
+# pose. Derived numerically from measured zero-pose transforms (mount-local =
+# R_gavin^T * desired world offset). Previous USD-extracted values:
+#   left  "0.0577817 -0.0810538 0.0690376"   right "0.00630262 0.0702546 0.0842720"
+# Left mount (empirically confirmed 2026-06-11, render option "Y"):
+#   xyz = right xyz with y negated.
+#   rpy = the y-mirror of the right rpy (roll & yaw negated), THEN rotated 180deg about the
+#         hand-root LOCAL Y axis. The extra 180deg is required because the left hand is the
+#         proper chirality xacro hand (orcahand_left.urdf), whose root frame is reflected
+#         about the hand's local x; without it the left hand closed 180deg the wrong way.
+#   (right rpy "1.737739 0.047154 -0.089270" -> y-mirror "-1.737739 0.047154 0.089270"
+#    -> +180deg about root-local Y -> "1.403854 -0.047154 3.052323".)
+DEFAULT_MOUNT_XYZ = {
+    "left": "0.006220897 -0.03045047 0.08067889",
+    "right": "0.006220897 0.03045047 0.08067889",
+}
+DEFAULT_MOUNT_RPY = {
+    "left": "1.403854 -0.047154 3.052323",
+    "right": "1.737739 0.047154 -0.089270",
+}
+
+# Extra yaw of the WHOLE mount+hand assembly about the flange (panda_link8 z) axis.
+# NOTE: at the all-zero pose the link8 frame is rotated ~pi about X vs world (the
+# joint rpy offsets sum to 180deg), so link8 +z points world-DOWN and a positive
+# link8-yaw appears CLOCKWISE in a top-down view. Seen from above these values
+# therefore rotate: left 90deg CCW, right 90deg CW, turning the fingers from
+# pointing inward (toward the other arm, output/sim/zero_pose/zero_top.png
+# pre-fix) to pointing FORWARD (+X, toward the table).
+DEFAULT_MOUNT_YAW = {
+    "left": "-1.5707963",
+    "right": "1.5707963",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -52,8 +103,11 @@ FRANKA_JOINTS = [
      (0.0825, 0, 0), (1.5708, 0, 0), (0, 0, 1), -3.0718, -0.0698),
     ("panda_joint5", "panda_link4", "panda_link5",
      (-0.0825, 0.384, 0), (-1.5708, 0, 0), (0, 0, 1), -2.8973, 2.8973),
+    # lower limit widened from the textbook Panda -0.0175 to -1.0: with the 90-deg hand
+    # bracket modelled (MOUNT_RPY below), joint6 carries only the small real wrist flexion,
+    # and the recorded franka_orca data runs joint6 down to ~-0.55 (non-standard convention).
     ("panda_joint6", "panda_link5", "panda_link6",
-     (0, 0, 0), (1.5708, 0, 0), (0, 0, 1), -0.0175, 3.7525),
+     (0, 0, 0), (1.5708, 0, 0), (0, 0, 1), -1.0, 3.7525),
     ("panda_joint7", "panda_link6", "panda_link7",
      (0.088, 0, 0), (1.5708, 0, 0), (0, 0, 1), -2.8973, 2.8973),
 ]
@@ -94,6 +148,53 @@ def _make_inertia_elem(mass: float) -> ET.Element:
     inertia.set("iyz", "0")
     inertia.set("izz", f"{i_val:.6f}")
     return inertial
+
+
+def _parse_xyz(text: str) -> tuple[float, float, float]:
+    parts = [float(x) for x in text.split()]
+    if len(parts) != 3:
+        raise ValueError(f"Expected 3 floats, got {text!r}")
+    return tuple(parts)
+
+
+def _add_mount_link(robot: ET.Element, side: str, hand_xyz: str, hand_rpy: str) -> str:
+    """Add a fixed Gavin-mount link between the Franka flange and Orca hand.
+
+    The real bracket mesh is available as a binary USD at the repo root, but
+    URDF importers are much more reliable with native URDF primitives. These
+    plate visuals make the mount explicit in the articulation while the fixed
+    joint below carries the authoritative extracted pose.
+    """
+    link_name = f"{side}_gavin_mount"
+    link = ET.SubElement(robot, "link")
+    link.set("name", link_name)
+
+    inertial = ET.SubElement(link, "inertial")
+    ET.SubElement(inertial, "origin", {"xyz": "0 0 0", "rpy": "0 0 0"})
+    ET.SubElement(inertial, "mass", {"value": "0.05"})
+    ET.SubElement(inertial, "inertia", {
+        "ixx": "0.000010000",
+        "ixy": "0",
+        "ixz": "0",
+        "iyy": "0.000010000",
+        "iyz": "0",
+        "izz": "0.000010000",
+    })
+
+    def add_plate(name: str, xyz: str, rpy: str, size: str) -> None:
+        visual = ET.SubElement(link, "visual")
+        visual.set("name", name)
+        ET.SubElement(visual, "origin", {"xyz": xyz, "rpy": rpy})
+        geom = ET.SubElement(visual, "geometry")
+        ET.SubElement(geom, "box", {"size": size})
+        ET.SubElement(visual, "material", {"name": "dark"})
+
+    hx, hy, hz = _parse_xyz(hand_xyz)
+    add_plate("gavin_flange_plate", "0 0 0.006", "0 0 0", "0.070 0.070 0.012")
+    add_plate("gavin_hand_plate", f"{hx:.7g} {hy:.7g} {hz:.7g}", hand_rpy, "0.065 0.055 0.012")
+    add_plate("gavin_offset_body", f"{hx * 0.5:.7g} {hy * 0.5:.7g} {hz * 0.5:.7g}", "0 0 0", "0.030 0.030 0.090")
+
+    return link_name
 
 
 def build_franka_arm_xml() -> ET.Element:
@@ -322,7 +423,8 @@ def sanitize_inertials(robot: ET.Element, min_mass: float = 0.01,
 
 def combine_franka_orca(franka_robot: ET.Element, orca_robot: ET.Element,
                          side: str, mount_rpy: str = "0 0 0",
-                         mount_xyz: str = "0 0 0") -> ET.Element:
+                         mount_xyz: str = "0 0 0",
+                         mount_yaw: str = "0") -> ET.Element:
     """Combine Franka arm with Orca hand into a single URDF.
 
     Adds a fixed joint from panda_link8 to the hand's root link.
@@ -333,6 +435,8 @@ def combine_franka_orca(franka_robot: ET.Element, orca_robot: ET.Element,
         side: "left" or "right"
         mount_rpy: RPY rotation of hand relative to Franka flange
         mount_xyz: XYZ offset of hand relative to Franka flange
+        mount_yaw: extra yaw (rad) of the whole mount+hand assembly about the
+            flange z axis, applied at the panda_link8 -> gavin_mount joint
     """
     combined = copy.deepcopy(franka_robot)
     combined.set("name", f"franka_orca_{side}")
@@ -354,11 +458,21 @@ def combine_franka_orca(franka_robot: ET.Element, orca_robot: ET.Element,
         if not existing:
             combined.append(copy.deepcopy(material))
 
-    # Add fixed joint connecting Franka flange to Orca hand root
+    # Add the Gavin 90-degree mount as an explicit fixed link, then attach the
+    # hand root with the transform extracted from the mounted USD scene.
+    mount_link = _add_mount_link(combined, side, mount_xyz, mount_rpy)
+
+    flange_joint = ET.SubElement(combined, "joint")
+    flange_joint.set("name", f"panda_link8_to_{side}_gavin_mount")
+    flange_joint.set("type", "fixed")
+    ET.SubElement(flange_joint, "parent").set("link", "panda_link8")
+    ET.SubElement(flange_joint, "child").set("link", mount_link)
+    ET.SubElement(flange_joint, "origin", {"xyz": "0 0 0", "rpy": f"0 0 {mount_yaw}"})
+
     mount_joint = ET.SubElement(combined, "joint")
-    mount_joint.set("name", f"panda_link8_to_{side}_hand")
+    mount_joint.set("name", f"gavin_mount_to_{side}_hand")
     mount_joint.set("type", "fixed")
-    ET.SubElement(mount_joint, "parent").set("link", "panda_link8")
+    ET.SubElement(mount_joint, "parent").set("link", mount_link)
     ET.SubElement(mount_joint, "child").set("link", hand_root_link)
     origin = ET.SubElement(mount_joint, "origin")
     origin.set("xyz", mount_xyz)
@@ -393,44 +507,46 @@ def main():
     # Resolve mesh paths to be relative to output directory
     resolve_mesh_paths(orca_right, orca_description_dir, OUTPUT_DIR)
 
-    # Generate left hand by mirroring
-    print("Generating left hand by mirroring...")
-    orca_left = mirror_orca_hand_to_left(orca_right)
+    # LEFT hand: parse the PROPER left URDF (xacro chirality:=left) instead of mirroring
+    # the right in-script. The xacro flips joint axes + per-joint rpy correctly; the old
+    # mirror_orca_hand_to_left() did not, which put the thumb on the wrong side.
+    print(f"Parsing proper LEFT hand URDF: {ORCA_LEFT_URDF_PATH}")
+    orca_left = parse_orca_hand(ORCA_LEFT_URDF_PATH)
     resolve_mesh_paths(orca_left, orca_description_dir, OUTPUT_DIR)
 
     # Build Franka arm
     print("Building Franka Panda arm...")
     franka = build_franka_arm_xml()
 
-    # Mounting transform: how the Orca hand attaches to the Franka flange.
-    # The Orca hand's root is at its origin; the tower base is offset from root.
-    # panda_link8 is the flange face pointing along Z.
-    # The hand tower extends upward (Z) from its root.
-    # We need to rotate the hand so its Z-axis aligns with the Franka's Z-axis
-    # and position it so the tower base sits on the flange.
+    # Mounting transform: how the Orca hand attaches to the Franka flange (panda_link8).
     #
-    # From the Orca URDF: right_world2tower_fixed has xyz="-0.04 0.0 0.04575"
-    # meaning the tower base is 4cm back (X) and 4.575cm up (Z) from root.
-    # The hand's functional axis points along its Z.
-    #
-    # Mounting: hand root at the flange origin, no rotation needed (both Z-up).
-    # Fine-tuning may be needed after visual inspection in Isaac Sim.
-    # Hand mount relative to the Franka flange (panda_link8). The real rig uses a
-    # 90-degree "Gavin" bracket that bends the Orca hand so its fingers hang down
-    # perpendicular to the forearm. Configurable via env to sweep orientations.
-    mount_xyz = os.environ.get("MOUNT_XYZ", "0 0 0")
-    mount_rpy = os.environ.get("MOUNT_RPY", "0 0 0")
-    print(f"[mount] mount_xyz='{mount_xyz}' mount_rpy='{mount_rpy}'")
+    # The real setup uses the Gavin 90-degree bracket, so the hand hangs roughly
+    # perpendicular to the wrist axis instead of straight off the Franka flange.
+    # The side-specific defaults come from the baked local matrices in
+    # dual_franka_mounted_visual.usda. Env overrides are kept for render sweeps.
+    mount_xyz_left = os.environ.get("MOUNT_XYZ_LEFT", os.environ.get("MOUNT_XYZ", DEFAULT_MOUNT_XYZ["left"]))
+    mount_rpy_left = os.environ.get("MOUNT_RPY_LEFT", os.environ.get("MOUNT_RPY", DEFAULT_MOUNT_RPY["left"]))
+    mount_xyz_right = os.environ.get("MOUNT_XYZ_RIGHT", os.environ.get("MOUNT_XYZ", DEFAULT_MOUNT_XYZ["right"]))
+    mount_rpy_right = os.environ.get("MOUNT_RPY_RIGHT", os.environ.get("MOUNT_RPY", DEFAULT_MOUNT_RPY["right"]))
+    mount_yaw_left = os.environ.get("MOUNT_YAW_LEFT", os.environ.get("MOUNT_YAW", DEFAULT_MOUNT_YAW["left"]))
+    mount_yaw_right = os.environ.get("MOUNT_YAW_RIGHT", os.environ.get("MOUNT_YAW", DEFAULT_MOUNT_YAW["right"]))
+    print(
+        "[mount] "
+        f"left xyz='{mount_xyz_left}' rpy='{mount_rpy_left}' yaw='{mount_yaw_left}' | "
+        f"right xyz='{mount_xyz_right}' rpy='{mount_rpy_right}' yaw='{mount_yaw_right}'"
+    )
 
     # Combine right arm + right hand
     print("Combining right arm + right hand...")
     combined_right = combine_franka_orca(franka, orca_right, "right",
-                                          mount_rpy=mount_rpy, mount_xyz=mount_xyz)
+                                          mount_rpy=mount_rpy_right, mount_xyz=mount_xyz_right,
+                                          mount_yaw=mount_yaw_right)
 
     # Combine left arm + left hand
     print("Combining left arm + left hand...")
     combined_left = combine_franka_orca(franka, orca_left, "left",
-                                         mount_rpy=mount_rpy, mount_xyz=mount_xyz)
+                                         mount_rpy=mount_rpy_left, mount_xyz=mount_xyz_left,
+                                         mount_yaw=mount_yaw_left)
 
     # Write output URDFs
     right_path = os.path.join(OUTPUT_DIR, "franka_orca_right.urdf")

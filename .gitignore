@@ -252,9 +252,14 @@ checkpoints/
 
 # Video files
 *.mp4
+# Large local datasets / IK solution dumps
+*.h5
+ik_joints*.npz
 
 # Render/eval outputs (local)
 output/
+# Archived old experiment outputs / artifacts / dead scripts (local-only)
+archive/
 *.primbak
 *.meshbak
 *.bak
