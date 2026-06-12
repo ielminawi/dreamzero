@@ -206,7 +206,9 @@ def build_franka_arm_xml() -> ET.Element:
 
     # Material definitions
     for name, rgba in [("white", "1 1 1 1"), ("grey", "0.9 0.9 0.9 1"),
-                        ("dark", "0.3 0.3 0.3 1")]:
+                        ("dark", "0.3 0.3 0.3 1"),
+                        ("orca_black", ORCA_BLACK_RGBA),
+                        ("orca_skin", ORCA_SKIN_RGBA)]:
         mat = ET.SubElement(robot, "material")
         mat.set("name", name)
         color = ET.SubElement(mat, "color")
@@ -292,6 +294,47 @@ def parse_orca_hand(urdf_path: str) -> ET.Element:
     """Parse the Orca hand URDF and return the root element."""
     tree = ET.parse(urdf_path)
     return tree.getroot()
+
+
+# Real ORCA v1 look: near-black FDM-printed structure + light-gray cast-silicone
+# skin pads. The upstream URDF assigns "white" to every visual, which is wrong for
+# the printed parts. (The official MJCF uses 0.25 black / 1.0 white; these were
+# tuned darker/grayer against renders 2026-06-12.)
+ORCA_BLACK_RGBA = "0.08 0.08 0.08 1"
+ORCA_SKIN_RGBA = "0.78 0.78 0.78 1"
+_WHITE_MESH_RE = re.compile(r"(_skin_mesh|tower_text_mesh)\.stl$")
+
+
+def apply_two_tone_materials(orca_robot: ET.Element) -> tuple[int, int]:
+    """Assign black to printed-structure visuals, light gray to silicone-skin ones.
+
+    Classification is by visual mesh filename: ``*_skin_mesh.stl`` and the tower
+    logo ``tower_text_mesh.stl`` get ``orca_skin``; every other visual (finger/palm
+    structure, tower hull/main/fans/camera/u2d2) becomes ``orca_black``. Both
+    definitions live with the other root-level materials in build_franka_arm_xml()
+    (it cannot be defined here: combine_franka_orca() copies links before
+    materials, so by the time its material pass runs, the bare ``orca_black``
+    references inside the links already make the name look "existing" and a
+    definition appended here would be skipped).
+    Returns (n_black, n_white) visual counts.
+    """
+    n_black = n_white = 0
+    for visual in orca_robot.iter("visual"):
+        geometry = visual.find("geometry")
+        mesh = geometry.find("mesh") if geometry is not None else None
+        if mesh is None:
+            continue
+        basename = os.path.basename(mesh.get("filename", ""))
+        material = visual.find("material")
+        if material is None:
+            material = ET.SubElement(visual, "material")
+        if _WHITE_MESH_RE.search(basename):
+            material.set("name", "orca_skin")
+            n_white += 1
+        else:
+            material.set("name", "orca_black")
+            n_black += 1
+    return n_black, n_white
 
 
 def resolve_mesh_paths(element: ET.Element, orca_description_dir: str,
@@ -508,6 +551,8 @@ def main():
 
     # Resolve mesh paths to be relative to output directory
     resolve_mesh_paths(orca_right, orca_description_dir, OUTPUT_DIR)
+    n_black, n_white = apply_two_tone_materials(orca_right)
+    print(f"[materials] right hand: {n_black} black / {n_white} white visuals")
 
     # LEFT hand: parse the PROPER left URDF (xacro chirality:=left) instead of mirroring
     # the right in-script. The xacro flips joint axes + per-joint rpy correctly; the old
@@ -515,6 +560,8 @@ def main():
     print(f"Parsing proper LEFT hand URDF: {ORCA_LEFT_URDF_PATH}")
     orca_left = parse_orca_hand(ORCA_LEFT_URDF_PATH)
     resolve_mesh_paths(orca_left, orca_description_dir, OUTPUT_DIR)
+    n_black, n_white = apply_two_tone_materials(orca_left)
+    print(f"[materials] left hand: {n_black} black / {n_white} white visuals")
 
     # Build Franka arm
     print("Building Franka Panda arm...")

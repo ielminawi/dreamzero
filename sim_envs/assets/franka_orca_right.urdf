@@ -9,6 +9,12 @@
   <material name="dark">
     <color rgba="0.3 0.3 0.3 1"/>
   </material>
+  <material name="orca_black">
+    <color rgba="0.08 0.08 0.08 1"/>
+  </material>
+  <material name="orca_skin">
+    <color rgba="0.78 0.78 0.78 1"/>
+  </material>
   <link name="panda_link0">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -256,7 +262,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/tower_main_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="collision_tower_main_mesh">
       <origin rpy="0.0663641604020242 -0.10532695421927696 -0.7765909134463538" xyz="0.04102610596606573 0.0008755408110132971 0.03758955025925282"/>
@@ -270,7 +276,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/tower_hull_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="collision_tower_hull_mesh">
       <origin rpy="1.5691929949477865 -6.931644826568828e-05 -0.0012916867662787768" xyz="0.04061884697236149 7.083739226185091e-06 0.009306225228503611"/>
@@ -284,7 +290,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/tower_text_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_skin"/>
     </visual>
     <collision name="collision_tower_text_mesh">
       <origin rpy="-2.239658800831686 -1.5545672668594075 -2.4480790171423275" xyz="0.04068345506360967 -0.0011250828560853416 0.027716099517902396"/>
@@ -312,7 +318,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/palm_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_palm_mesh">
       <origin rpy="2.026338195778868 0.044917456181218895 1.531847751735018" xyz="0.0015796019462848588 0.0001376248446814945 -0.011923873250196919"/>
@@ -326,7 +332,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/palm_skin_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_skin"/>
     </visual>
     <collision name="right_collision_palm_skin_mesh">
       <origin rpy="1.8840619193629062 0.16785003095386486 1.6839920915628581" xyz="0.008013832397891144 -0.001293701510845759 -0.0015696747425978242"/>
@@ -354,7 +360,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/thumb_mp_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_thumb_mp_mesh">
       <origin rpy="-0.004051421860145692 0.0 0.0" xyz="0.0025186274059406416 1.1817094343651893e-05 0.0033325772179257306"/>
@@ -382,7 +388,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/thumb_pp_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_thumb_pp_mesh">
       <origin rpy="-1.588892025872152 -1.3512360913096229 -1.5473903377526785" xyz="0.01727473106987278 2.0812531064334476e-05 -0.00010892038972696916"/>
@@ -410,7 +416,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/thumb_ip_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_thumb_ip_mesh">
       <origin rpy="0.00708255798627546 0.04763590113115046 0.0" xyz="0.0013560375396256981 0.00012710825491742077 0.013446327660739959"/>
@@ -424,7 +430,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/thumb_ip_skin_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_skin"/>
     </visual>
     <collision name="right_collision_thumb_ip_skin_mesh">
       <origin rpy="3.141592653589793 -1.243771833702049 0.0" xyz="0.0015528244655451595 6.48072440430664e-06 0.016246657621879965"/>
@@ -452,7 +458,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/thumb_dp_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_thumb_dp_mesh">
       <origin rpy="0.24272423187789072 -0.008190712846545711 1.5687682825082248" xyz="0.0020244971365026335 3.68319791392775e-05 0.005533677984084769"/>
@@ -466,7 +472,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/thumb_dp_skin_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_skin"/>
     </visual>
     <collision name="right_collision_thumb_dp_skin_mesh">
       <origin rpy="3.141592653589793 -0.3963953079219906 0.0" xyz="0.002785448336058668 -6.944475247259374e-06 0.016557497442018437"/>
@@ -501,7 +507,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/index_mp_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_index_mp_mesh">
       <origin rpy="0.928212641576985 -1.5147947849129795 2.212627507721145" xyz="0.01047824184159959 -4.456734197189478e-05 -0.00016480462181888062"/>
@@ -529,7 +535,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/index_pp_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_index_pp_mesh">
       <origin rpy="0.0 0.042883356216690816 0.0" xyz="0.0013516740131344841 1.1247422892215125e-05 0.015681803525061735"/>
@@ -543,7 +549,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/index_pp_skin_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_skin"/>
     </visual>
     <collision name="right_collision_index_pp_skin_mesh">
       <origin rpy="3.141592653589793 -0.8259683678608123 0.0" xyz="0.0016773866527582534 -5.5310131701629075e-06 0.018740870134460883"/>
@@ -571,7 +577,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/index_ip_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_index_ip_mesh">
       <origin rpy="0.0018005943049513862 0.0 1.5707963267948966" xyz="0.001264526142413497 -1.637119615337525e-05 0.01147202326458154"/>
@@ -585,7 +591,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/index_ip_skin_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_skin"/>
     </visual>
     <collision name="right_collision_index_ip_skin_mesh">
       <origin rpy="0.0 -0.4457042297154219 0.0" xyz="0.0006216739383467692 2.432607491983251e-06 0.02302104994067657"/>
@@ -620,7 +626,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/middle_mp_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_middle_mp_mesh">
       <origin rpy="0.928212641576985 -1.5147947849129795 2.212627507721145" xyz="0.01047824184159959 -4.456734197189478e-05 -0.00016480462181888062"/>
@@ -648,7 +654,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/middle_pp_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_middle_pp_mesh">
       <origin rpy="-0.0006410664486678006 0.029880005436222712 0.0" xyz="0.001339380770656077 -6.845101857801683e-06 0.02011933923689832"/>
@@ -662,7 +668,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/middle_pp_skin_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_skin"/>
     </visual>
     <collision name="right_collision_middle_pp_skin_mesh">
       <origin rpy="0.0 -0.22006061767397878 0.0" xyz="0.0017525848624676125 2.7252940732883304e-06 0.022885135333659"/>
@@ -690,7 +696,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/middle_ip_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_middle_ip_mesh">
       <origin rpy="0.0018005943049513862 0.0 1.5707963267948966" xyz="0.001264526142413497 -1.637119615337525e-05 0.01147202326458154"/>
@@ -704,7 +710,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/middle_ip_skin_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_skin"/>
     </visual>
     <collision name="right_collision_middle_ip_skin_mesh">
       <origin rpy="0.0 -0.4457042297154219 0.0" xyz="0.0006216739383467692 2.432607491983251e-06 0.02302104994067657"/>
@@ -739,7 +745,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/ring_mp_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_ring_mp_mesh">
       <origin rpy="0.928212641576985 -1.5147947849129795 2.212627507721145" xyz="0.01047824184159959 -4.456734197189478e-05 -0.00016480462181888062"/>
@@ -767,7 +773,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/ring_pp_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_ring_pp_mesh">
       <origin rpy="-0.0006410664486678006 0.029880005436222712 0.0" xyz="0.001339380770656077 -6.845101857801683e-06 0.02011933923689832"/>
@@ -781,7 +787,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/ring_pp_skin_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_skin"/>
     </visual>
     <collision name="right_collision_ring_pp_skin_mesh">
       <origin rpy="0.0 -0.22006061767397878 0.0" xyz="0.0017525848624676125 2.7252940732883304e-06 0.022885135333659"/>
@@ -809,7 +815,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/ring_ip_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_ring_ip_mesh">
       <origin rpy="0.0018005943049513862 0.0 1.5707963267948966" xyz="0.001264526142413497 -1.637119615337525e-05 0.01147202326458154"/>
@@ -823,7 +829,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/ring_ip_skin_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_skin"/>
     </visual>
     <collision name="right_collision_ring_ip_skin_mesh">
       <origin rpy="0.0 -0.4457042297154219 0.0" xyz="0.0006216739383467692 2.432607491983251e-06 0.02302104994067657"/>
@@ -858,7 +864,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/pinky_mp_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_pinky_mp_mesh">
       <origin rpy="0.928212641576985 -1.5147947849129795 2.212627507721145" xyz="0.01047824184159959 -4.456734197189478e-05 -0.00016480462181888062"/>
@@ -886,7 +892,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/pinky_pp_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_pinky_pp_mesh">
       <origin rpy="0.00708255798627546 0.04763590113115046 0.0" xyz="0.0013560375396256981 0.00012710825491742077 0.013446327660739959"/>
@@ -900,7 +906,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/pinky_pp_skin_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_skin"/>
     </visual>
     <collision name="right_collision_pinky_pp_skin_mesh">
       <origin rpy="3.141592653589793 -1.243771833702049 0.0" xyz="0.0015528244655451595 6.48072440430664e-06 0.016246657621879965"/>
@@ -928,7 +934,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/pinky_ip_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_black"/>
     </visual>
     <collision name="right_collision_pinky_ip_mesh">
       <origin rpy="0.0018005943049513862 0.0 1.5707963267948966" xyz="0.001264526142413497 -1.637119615337525e-05 0.01147202326458154"/>
@@ -942,7 +948,7 @@
       <geometry>
         <mesh filename="orcahand_description/assets/urdf/visual/pinky_ip_skin_mesh.stl" scale="1 1 1"/>
       </geometry>
-      <material name="white"/>
+      <material name="orca_skin"/>
     </visual>
     <collision name="right_collision_pinky_ip_skin_mesh">
       <origin rpy="0.0 -0.4457042297154219 0.0" xyz="0.0006216739383467692 2.432607491983251e-06 0.02302104994067657"/>

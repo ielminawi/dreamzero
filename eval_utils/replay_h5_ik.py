@@ -1,9 +1,10 @@
 """Open-loop replay of a recorded episode by IK: dataset EE poses -> joint targets.
 
-THE DATASET FORMAT (established 2026-06-11, Opus-panel verified): the 7-dim
+THE DATASET FORMAT (established 2026-06-11, xyzw confirmed via the convention
+harness — see docs/EE_POSE_AND_IK_PIPELINE.md): the 7-dim
 `observations/qpos_arm_*` / `actions_arm_*` fields are END-EFFECTOR POSES
-[x, y, z, qw, qx, qy, qz] in each arm's OWN BASE frame (meters, scalar-first unit
-quaternion; ||q||=1 to machine precision on every frame) — NOT joint angles. The
+[x, y, z, qx, qy, qz, qw] in each arm's OWN BASE frame (meters, scalar-LAST unit
+quaternion, converted to Isaac's wxyz at load; ||q||=1 to machine precision) — NOT joint angles. The
 old per-joint sign/offset remap (real_arm_to_sim) is therefore meaningless and is
 NOT used here.
 
@@ -286,7 +287,7 @@ class ArmIK:
 def main():
     log("=" * 72)
     log(f"IK REPLAY  h5={args.h5}  source={args.source}  ee-body={args.ee_body}  stride={args.stride}")
-    log("  dataset arm fields = EE poses [x,y,z,qw,qx,qy,qz] in the arm BASE frame")
+    log("  dataset arm fields = EE poses [x,y,z,qx,qy,qz,qw] (xyzw) in the arm BASE frame")
     log("=" * 72)
 
     with h5py.File(args.h5, "r") as f:
@@ -299,6 +300,9 @@ def main():
     nl = np.linalg.norm(pl[:, 3:7], axis=1); nr = np.linalg.norm(pr[:, 3:7], axis=1)
     log(f"episode T={T} @50Hz; quat-norm sanity: L[{nl.min():.6f},{nl.max():.6f}] R[{nr.min():.6f},{nr.max():.6f}]")
     pl[:, 3:7] /= nl[:, None]; pr[:, 3:7] /= nr[:, None]  # exact unit (paranoia)
+    # dataset quat is scalar-LAST (xyzw); Isaac Lab utils expect scalar-first (wxyz)
+    pl[:, 3:7] = np.roll(pl[:, 3:7], 1, axis=1)
+    pr[:, 3:7] = np.roll(pr[:, 3:7], 1, axis=1)
 
     cfg = FrankaOrcaBimanualEnvCfg()
     cfg.sim.device = args.device
