@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=dz_joints
+#SBATCH --job-name=dz_r16unf4
 #SBATCH --time=48:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -9,11 +9,10 @@
 #SBATCH --gres=gpumem:90g
 #SBATCH --tmp=120G
 #SBATCH --account=ls_polle
-#SBATCH --output=/cluster/scratch/rjiang/dreamzero/euler/logs/train_joints.%j.log
-# JOINT-SPACE actions run: data/franka_orca_lerobot_joints (arm dims = IK'd joint
-# angles) + per-segment weighted normalized action loss. Same warm-start +
-# unfreeze-top-3 recipe as the r16unf4 run. See scripts/train/franka_orca_training_joints.sh
-# for the caveats (two variables differ vs r16unf4: action space AND loss weighting).
+#SBATCH --output=/cluster/scratch/rjiang/dreamzero/euler/logs/train_r16unf4.%j.log
+# WARM-START + unfreeze-top-4 run. Warm-starts the rank-16 LoRA+MLP delta from
+# checkpoint-6000 and additionally full-finetunes the top-4 DiT blocks (the action<->vision
+# coupling fix). New output_dir => fresh optimizer/scheduler/step (NOT a resume of r16).
 set -eo pipefail
 module load eth_proxy cuda/13.0.2 2>/dev/null || true
 REPO=/cluster/scratch/rjiang/dreamzero
@@ -22,7 +21,7 @@ export PATH="$REPO/.venv/bin:$PATH"
 export CUDA_HOME=${CUDA_HOME:-/cluster/software/manual/cuda/13.0.2/x86_64}
 export ATTENTION_BACKEND=torch
 export DS_ACCELERATOR=cuda
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True   # reclaim fragmentation; top-4 unfreeze is ~300MB over 80GB without it
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 TOKENIZERS_PARALLELISM=false NO_ALBUMENTATIONS_UPDATE=1
 export HF_HOME=/cluster/scratch/rjiang/hf_cache
 mkdir -p "$HF_HOME"
@@ -32,8 +31,8 @@ if [ -n "${TMPDIR:-}" ]; then
   cp -r "$REPO/checkpoints/DreamZero-AgiBot/." "$TMPDIR/dz_agibot/"
   export PRETRAINED_PATH="$TMPDIR/dz_agibot"
 fi
-export FRANKA_ORCA_DATA_ROOT="$REPO/data/franka_orca_lerobot_joints"
-export OUTPUT_DIR="$REPO/checkpoints/dreamzero_franka_orca_lora_joints"
+export FRANKA_ORCA_DATA_ROOT="$REPO/data/franka_orca_lerobot"
+export OUTPUT_DIR="$REPO/checkpoints/dreamzero_franka_orca_lora_r16unf4"
 export WARMSTART_LORA_PATH="$REPO/checkpoints/dreamzero_franka_orca_lora_r16/checkpoint-6000"
 export UNFREEZE_TOP_K=3
 export NUM_GPUS=1
@@ -43,9 +42,9 @@ export REPORT_TO=wandb
 export WANDB_PROJECT=dreamzero
 export WANDB_MODE=${WANDB_MODE:-online}
 export WANDB_DIR=/cluster/scratch/rjiang/dreamzero/wandb
-export WANDB_RUN_NAME="franka_orca_joints_$(date +%Y%m%d_%H%M 2>/dev/null || echo run)"
+export WANDB_RUN_NAME="franka_orca_r16unf4_$(date +%Y%m%d_%H%M 2>/dev/null || echo run)"
 mkdir -p "$WANDB_DIR"
 test -d "$FRANKA_ORCA_DATA_ROOT/meta" || { echo "ERROR: $FRANKA_ORCA_DATA_ROOT/meta missing"; exit 1; }
 nvidia-smi -L || true
-bash "$REPO/scripts/train/franka_orca_training_joints.sh"
+bash "$REPO/scripts/train/franka_orca_training_unf4.sh"
 echo "==> training script exit: $?"

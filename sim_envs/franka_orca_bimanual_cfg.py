@@ -216,21 +216,27 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
     # Isaac black-grid void is strongly out-of-distribution. These are VISUAL-ONLY (no
     # collision_props) so they can't interpenetrate the arm bases / hang PhysX; the
     # GroundPlaneCfg above still provides the physics floor. Neutral indoor colors.
+    # Top surface must sit ABOVE the ground plane (z=0), else the Isaac black grid renders
+    # instead of this floor (was pos z=-0.011 -> top at -0.001, hidden under the grid).
+    # Brick-red tone to match the training room's brick floor seen by the oak-d camera.
     floor_visual = AssetBaseCfg(
         prim_path="/World/Backdrop/Floor",
         spawn=sim_utils.CuboidCfg(
             size=(8.0, 8.0, 0.02),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.52, 0.47, 0.42), roughness=0.95),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.48, 0.26, 0.20), roughness=0.95),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(1.0, 0.0, -0.011)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(1.0, 0.0, 0.001)),
     )
+    # At x=1.5 the wall filled the oak-d upper frame where the training view shows brick
+    # floor; pushed to x=4.5 it is out of the (downward-pitched) oak-d view entirely but
+    # still closes off the aria horizon.
     back_wall = AssetBaseCfg(
         prim_path="/World/Backdrop/BackWall",
         spawn=sim_utils.CuboidCfg(
-            size=(0.1, 6.0, 2.5),
+            size=(0.1, 9.0, 2.5),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.70, 0.67, 0.61), roughness=0.95),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(1.5, 0.0, 1.2)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(4.5, 0.0, 1.2)),
     )
 
     # Table (simple cuboid stand-in; swap for USD mesh once Nucleus is available).
