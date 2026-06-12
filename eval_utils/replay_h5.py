@@ -26,7 +26,7 @@ parser.add_argument("--stride", type=int, default=1, help="subsample recorded fr
 parser.add_argument("--init-to-first", action="store_true", default=True,
                     help="teleport sim joints to recorded action[0] before replay (avoid a startup jump)")
 parser.add_argument("--remap-arm", action="store_true", default=True,
-                    help="apply inferred real->sim arm joint-convention remap (j4-=pi, j6+=pi)")
+                    help="apply configured real->sim arm joint-convention remap")
 parser.add_argument("--no-remap-arm", dest="remap_arm", action="store_false")
 parser.add_argument("--joints-npz", type=str, default=None,
                     help="npz with ik_left/ik_right (T,7) joint trajectories (from "
@@ -93,12 +93,12 @@ def main():
         hl = hl[:T]; hr = hr[:T]
     else:
         # LEGACY (known-wrong: misreads EE poses as joint angles + empirical remap).
-        # Apply the inferred arm joint-convention remap (real -> sim): j4 -= pi, j6 += pi.
+        # Apply the configured per-side arm joint-convention remap (real -> sim).
         from sim_envs.franka_orca_bimanual_cfg import real_arm_to_sim, ARM_SIM_FROM_REAL
         if args.remap_arm:
             log(f"APPLYING arm remap real->sim: ARM_SIM_FROM_REAL={ARM_SIM_FROM_REAL}")
-            al = np.stack([real_arm_to_sim(a) for a in al]).astype(np.float32)
-            ar = np.stack([real_arm_to_sim(a) for a in ar]).astype(np.float32)
+            al = np.stack([real_arm_to_sim(a, "left") for a in al]).astype(np.float32)
+            ar = np.stack([real_arm_to_sim(a, "right") for a in ar]).astype(np.float32)
         else:
             log("NO arm remap (raw recorded actions)")
     # full 48-dim action in TRAINING layout [L_arm, R_arm, L_hand, R_hand]

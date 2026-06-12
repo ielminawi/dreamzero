@@ -40,8 +40,8 @@ def main():
         al = f["actions_arm_left"][:]; ar = f["actions_arm_right"][:]
         hl = f["actions_hand_left"][:]; hr = f["actions_hand_right"][:]
     T = min(len(al), len(ar), len(hl), len(hr))
-    al = np.stack([real_arm_to_sim(a) for a in al[:T]]).astype(np.float32)
-    ar = np.stack([real_arm_to_sim(a) for a in ar[:T]]).astype(np.float32)
+    al = np.stack([real_arm_to_sim(a, "left") for a in al[:T]]).astype(np.float32)
+    ar = np.stack([real_arm_to_sim(a, "right") for a in ar[:T]]).astype(np.float32)
     actions = np.concatenate([al, ar, hl[:T], hr[:T]], axis=-1).astype(np.float32)
 
     cfg = FrankaOrcaBimanualEnvCfg()
