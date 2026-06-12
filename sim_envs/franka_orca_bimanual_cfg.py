@@ -48,11 +48,11 @@ _ARIA_ROT = (0.660, 0.230, -0.210, -0.683)    # (w,x,y,z) OpenGL, from left_cam 
 _OAKD_EYE = (0.175, -0.040, 0.469)            # right_cam extrinsics -> oakd_front_view
 _OAKD_ROT = (0.678, 0.235, -0.175, -0.674)    # (w,x,y,z) OpenGL, from right_cam rotation
 
-# Arm separation on Y. The calibration file says 0.6127, but that is a heavy UNDERESTIMATE
+# Arm separation on Y. The calibration file says 0.6127, but that is an UNDERESTIMATE
 # (user determination 2026-06-11 after comparing renders at 61/70/80/90cm against the real
-# rig): the real arms stand ~80cm apart. Do not blindly trust
+# rig; settled on 0.70). Do not blindly trust
 # configs/franka_orca_calibration.json's arm_separation_meters / left_base_to_right_base.
-ARM_SEPARATION_Y = 0.80
+ARM_SEPARATION_Y = 0.70
 
 # Base placement: the h5 "left" arm stands at +Y, the "right" arm at -Y (the sim world
 # X axis points forward into the workspace, so +Y is image-left for the front cameras...
