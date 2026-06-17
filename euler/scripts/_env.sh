@@ -5,7 +5,7 @@
 # ---- Paths (everything lives on scratch) ----
 export DZ_REPO=/cluster/scratch/rjiang/dreamzero
 export DZ_VENV="$DZ_REPO/.venv"
-export DZ_LORA=/cluster/scratch/rjiang/checkpoints/dreamzero_franka_orca_lora/checkpoint-20000
+export DZ_LORA="${DZ_LORA:-/cluster/scratch/rjiang/checkpoints/dreamzero_franka_orca_lora/checkpoint-20000}"
 export DZ_SIF="$DZ_REPO/isaac-sim.sif"
 export DZ_TOKENIZER_DIR="$DZ_REPO/checkpoints/umt5-xxl"
 export DZ_OUTPUT="$DZ_REPO/output/sim"
@@ -120,6 +120,9 @@ dz_run_isaac_eval() {
           --device "${DZ_SIM_DEVICE:-cpu}"
           --host localhost --port "$DZ_PORT"
           --instruction "$instr" --episodes "$episodes" --open-loop-horizon "$horizon" )
+  # JOINT-SPACE policy: arm dims [0:14] are Panda joint angles, not EE poses -> bypass
+  # FK on obs and IK on actions. Enable via DZ_JOINT_ACTIONS=1.
+  [ "${DZ_JOINT_ACTIONS:-0}" = "1" ] && args+=( --joint-actions )
   echo "==> apptainer ${args[*]}"
   apptainer "${args[@]}"
 }

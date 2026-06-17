@@ -59,7 +59,7 @@ torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment
     gradient_accumulation_steps=2 \
     max_steps=${MAX_STEPS:-14000} \
     weight_decay=1e-5 \
-    save_total_limit=10 \
+    save_total_limit=${SAVE_TOTAL_LIMIT:-5} \
     upload_checkpoints=false \
     bf16=true \
     tf32=true \

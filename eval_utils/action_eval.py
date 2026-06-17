@@ -87,6 +87,9 @@ def main():
     P = {n: [] for n in seg_names}     # policy |pred-gt| (per joint, flattened)
     S = {n: [] for n in seg_names}     # stay   |state-gt|
     corr = {n: [] for n in seg_names}  # correlation pred vs gt (per chunk)
+    P_ra = {n: [] for n in seg_names}  # re-anchored: pred shifted so pred[0]==state[t] (removes anchor offset)
+    Pd = {n: [] for n in seg_names}    # displacement-only: (pred[h]-pred[0]) vs (gt[h]-gt[0])
+    offs = {n: [] for n in seg_names}  # per-sample per-joint constant offset mean_h(pred-gt) -> consistency check
     samples = []                        # (ep,t, per-seg mae) for logging
     traces = None                       # save one chunk for trajectory plot
 
@@ -111,6 +114,7 @@ def main():
             gt = act[t:t + H]                      # (24,48)
             stay = np.repeat(st[t][None], H, 0)    # (24,48) stay-still baseline
             rec = {"ep": int(ep), "t": int(t)}
+            pred_ra = pred - pred[0:1] + st[t][None]     # re-anchor so pred_ra[0] == state[t]
             for n, aa, bb in SEGMENTS:
                 pe = np.abs(pred[:, aa:bb] - gt[:, aa:bb])
                 se = np.abs(stay[:, aa:bb] - gt[:, aa:bb])
@@ -118,7 +122,12 @@ def main():
                 pv, gv = pred[:, aa:bb].ravel(), gt[:, aa:bb].ravel()
                 if pv.std() > 1e-8 and gv.std() > 1e-8:
                     corr[n].append(float(np.corrcoef(pv, gv)[0, 1]))
+                ra = np.abs(pred_ra[:, aa:bb] - gt[:, aa:bb]); P_ra[n].extend(ra.ravel().tolist())
+                pdisp = pred[:, aa:bb] - pred[0:1, aa:bb]; gdisp = gt[:, aa:bb] - gt[0:1, aa:bb]
+                Pd[n].extend(np.abs(pdisp - gdisp).ravel().tolist())
+                offs[n].append((pred[:, aa:bb] - gt[:, aa:bb]).mean(axis=0).tolist())
                 rec[f"{n}_mae"] = float(pe.mean()); rec[f"{n}_stay_mae"] = float(se.mean())
+                rec[f"{n}_reanchored_mae"] = float(ra.mean())
             samples.append(rec)
             if traces is None:
                 traces = dict(ep=int(ep), t=int(t), pred=pred.tolist(), gt=gt.tolist(), state=st[t].tolist())
@@ -128,9 +137,19 @@ def main():
     summary = {}
     for n in seg_names:
         pol = float(np.mean(P[n])); sta = float(np.mean(S[n]))
+        hi = [r for r in samples if r.get(f"{n}_stay_mae", 0.0) >= 0.02]   # high-motion chunks only
+        hi_pol = float(np.mean([r[f"{n}_mae"] for r in hi])) if hi else float("nan")
+        hi_sta = float(np.mean([r[f"{n}_stay_mae"] for r in hi])) if hi else float("nan")
+        off_arr = np.array(offs[n])                       # (n_samples, segdim) per-joint offset per sample
+        off_consistency = float(np.abs(off_arr.mean(axis=0)).mean() / (np.abs(off_arr).mean() + 1e-9))
         summary[n] = dict(policy_mae=pol, stay_mae=sta,
                           improvement=float((sta - pol) / sta) if sta > 0 else 0.0,
-                          corr=float(np.mean(corr[n])) if corr[n] else float("nan"))
+                          corr=float(np.mean(corr[n])) if corr[n] else float("nan"),
+                          policy_reanchored_mae=float(np.mean(P_ra[n])),
+                          policy_disp_mae=float(np.mean(Pd[n])),
+                          highmotion_policy_mae=hi_pol, highmotion_stay_mae=hi_sta, n_highmotion=len(hi),
+                          offset_mean_abs=float(np.abs(off_arr.mean(axis=0)).mean()),
+                          offset_consistency=off_consistency)   # ~1 = same bias every sample (real anchor bug); ~0 = random
     with open(os.path.join(a.out_dir, "action_accuracy.json"), "w") as f:
         json.dump(dict(summary=summary, samples=samples, traces=traces), f, indent=2)
 
@@ -141,6 +160,13 @@ def main():
         log.info(f"{n:24s} {s['policy_mae']:8.4f} {s['stay_mae']:8.4f} "
                  f"{('YES +'+format(100*s['improvement'],'.0f')+'%') if s['policy_mae']<s['stay_mae'] else 'NO':>12s} "
                  f"{s['corr']:6.2f}")
+
+    log.info("=== RE-ANCHORED / DISPLACEMENT / HIGH-MOTION (rad) -- isolate the anchor-bias from real tracking ===")
+    log.info(f"{'segment':24s} {'reanch':>8s} {'disp':>8s} {'stay':>8s} {'hi_pol':>8s} {'hi_stay':>8s} {'offset':>7s} {'consist':>7s}")
+    for n in seg_names:
+        s = summary[n]
+        log.info(f"{n:24s} {s['policy_reanchored_mae']:8.4f} {s['policy_disp_mae']:8.4f} {s['stay_mae']:8.4f} "
+                 f"{s['highmotion_policy_mae']:8.4f} {s['highmotion_stay_mae']:8.4f} {s['offset_mean_abs']:7.4f} {s['offset_consistency']:7.2f}")
 
     # plots
     try:
