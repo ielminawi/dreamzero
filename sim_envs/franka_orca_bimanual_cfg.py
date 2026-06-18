@@ -49,9 +49,19 @@ from isaaclab.utils import configclass
 #   left base (+Y), the oak-d eye follows the right base (-Y). Orientations are unchanged
 #   (a pure base translation preserves the relative look direction).
 _ARIA_EYE = (0.204, -0.00735, 0.434)          # left_cam extrinsics -> aria_rgb_cam (+0.04365 Y)
-_ARIA_ROT = (0.660, 0.230, -0.210, -0.683)    # (w,x,y,z) OpenGL, from left_cam rotation
-_OAKD_EYE = (0.175, -0.08365, 0.469)          # right_cam extrinsics -> oakd_front_view (-0.04365 Y)
-_OAKD_ROT = (0.678, 0.235, -0.175, -0.674)    # (w,x,y,z) OpenGL, from right_cam rotation
+# 2026-06-18 (user): the calibration extrinsics were inaccurate in yaw — from the camera
+# view the aria needed to turn LEFT ~10deg about the sim vertical (world Z). Applied
+# Rz(+10deg) in the world frame to the calibration rotation (optical-axis azimuth 1.6 -> 11.6deg,
+# i.e. swung toward +Y/image-left). Original calib quat was (0.660, 0.230, -0.210, -0.683).
+_ARIA_ROT = (0.7173, 0.2475, -0.1892, -0.6232)  # (w,x,y,z) OpenGL, calib + 10deg world-Z left
+# 2026-06-18 (user): the calibration extrinsics are unreliable; the OAK-D height was
+# re-measured BY HAND to 0.88 m above the table surface. Table top is at _TABLE_TOP=0.05,
+# so the world Z = 0.05 + 0.88 = 0.93 (was 0.469 from calib). X and Y left as calibrated.
+_OAKD_EYE = (0.175, -0.08365, 0.93)           # right_cam extrinsics; Z = hand-measured 0.88 above table
+# 2026-06-18 (user): tilted the OAK-D DOWN 15deg about its own local X (sensor-row) axis
+# on top of the calib rotation (optical axis 55.9 -> 70.7deg below horizontal). Calib base
+# quat was (0.678, 0.235, -0.175, -0.674).
+_OAKD_ROT = (0.7029, 0.1445, -0.0855, -0.6911)  # (w,x,y,z) OpenGL, calib + 15deg local-X down
 
 # Arm separation on Y, taken from configs/franka_orca_calibration.json. This keeps the
 # full frame chain consistent: the camera eyes below are derived from the SAME two
@@ -487,11 +497,10 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
         height=540,
         width=960,
         spawn=sim_utils.PinholeCameraCfg(
-            # focal_length raised 15->20 (HFOV ~70deg -> ~55deg) to tighten the framing
-            # toward the real cameras: crops the Isaac floor grid + Franka base links at
-            # the edges and enlarges the workspace/objects, while still keeping BOTH arms
-            # in view. Tuned by matching a rendered frame to the training video
-            # (output/sim_vs_train_oakd*.png). (focal=24 over-zoomed to a single hand.)
+            # focal_length=15.3 -> HFOV ~68.8deg, matching the REAL OAK-D RGB camera (IMX378,
+            # ~69deg HFOV at 960x540). 2026-06-18 (user): the previous hand-tuned focal=20
+            # (HFOV ~55deg) was zoomed in way too far. The calibration json has NO intrinsics,
+            # so this comes from the OAK-D sensor spec, not a measurement.
             focal_length=20.0,
             horizontal_aperture=20.955,
         ),
