@@ -16,7 +16,18 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--h5", type=str, default=os.path.join(REPO, "20250826_111157.h5"))
 parser.add_argument("--source", choices=["qpos", "actions"], default="qpos")
 parser.add_argument("--out", type=str, default=os.path.join(REPO, "ik_xyzw_full.npz"))
+# The recorded arm pose is the TCP (Franka NE_T_EE end-effector), NOT the flange.
+# Per the Franka GUI "Transformation Matrix from Flange to End-Effector" (user-provided
+# 2026-06-18) the TCP sits at translation (0.13, 0, 0.07) m, identity rotation, in the
+# panda_link8 (flange) frame. We IK the FLANGE, so we target it at
+#   flange = TCP - R_flange @ tcp_offset   (R_flange == recorded quat, since the offset
+# is a pure translation so TCP and flange share orientation). Pass "0 0 0" to recover the
+# old flange-as-target behaviour.
+parser.add_argument("--tcp-offset", type=str, default="0.13 0 0.07",
+                    help="TCP position in the flange frame, 'x y z' m (Franka NE_T_EE translation)")
 args = parser.parse_args()
+TCP_OFF = np.array([float(v) for v in args.tcp_offset.split()], dtype=float)
+assert TCP_OFF.shape == (3,), "--tcp-offset needs 3 numbers"
 
 PANDA = [{"xyz":[0,0,0.333],"rpy":[0,0,0]},{"xyz":[0,0,0],"rpy":[-PI/2,0,0]},
          {"xyz":[0,-0.316,0],"rpy":[PI/2,0,0]},{"xyz":[0.0825,0,0],"rpy":[PI/2,0,0]},
@@ -38,8 +49,8 @@ def fk(q):
 def solve_arm(P, Q4, name):
     T=len(P); out=np.zeros((T,7)); pe=np.zeros(T); oe=np.zeros(T); q=Q_HOME.copy(); t0=time.time()
     for t in range(T):
-        a,b,c,d=Q4[t]; Rt=Rot.from_quat([a,b,c,d]).as_matrix()  # XYZW absolute
-        p_t=P[t]
+        a,b,c,d=Q4[t]; Rt=Rot.from_quat([a,b,c,d]).as_matrix()  # XYZW absolute (TCP==flange ori)
+        p_t=P[t]-Rt@TCP_OFF  # recorded pose is the TCP; back out the flange position
         def resid(qq):
             R,p=fk(qq)
             return np.concatenate([p-p_t, Rot.from_matrix(R@Rt.T).as_rotvec(), 1e-3*(qq-Q_HOME)])
@@ -55,11 +66,12 @@ def main():
     with h5py.File(args.h5,"r") as f:
         src="observations/qpos_arm_{}" if args.source=="qpos" else "actions_arm_{}"
         pl=f[src.format("left")][:]; pr=f[src.format("right")][:]
-    print(f"solving XYZW flange IK for T={len(pl)} frames")
+    print(f"solving XYZW TCP IK for T={len(pl)} frames  (tcp_offset={TCP_OFF} m in flange frame)")
     ql,pel,oel=solve_arm(pl[:,0:3], pl[:,3:7], "left")
     qr,per,oer=solve_arm(pr[:,0:3], pr[:,3:7], "right")
     np.savez(args.out, ik_left=ql, ik_right=qr, pos_err_left=pel, ori_err_left=oel,
-             pos_err_right=per, ori_err_right=oer, convention="xyzw_abs_flange")
+             pos_err_right=per, ori_err_right=oer, convention="xyzw_abs_tcp",
+             tcp_offset=TCP_OFF)
     print("wrote", args.out)
 
 if __name__=="__main__":

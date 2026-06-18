@@ -43,16 +43,35 @@ from isaaclab.utils import configclass
 # Commit 57bc624 "camera" did exactly that and it (a) drifted the eye BEHIND the arm
 # bases (aria X +0.204 -> -0.250), (b) flattened the aria pitch to ~27deg, and (c)
 # discarded the calibrated roll — so neither sim camera matched the real recording.
-_ARIA_EYE = (0.204, -0.051, 0.434)            # left_cam extrinsics -> aria_rgb_cam
+#   2026-06-18: arm separation re-measured to 0.70 m from the physical table spec (see
+#   ARM_SEPARATION_Y below). To keep the calibrated camera<->arm-base offset, each eye is
+#   shifted on Y by its base delta (+/-0.04365 = 0.35 - 0.30635): the aria eye follows the
+#   left base (+Y), the oak-d eye follows the right base (-Y). Orientations are unchanged
+#   (a pure base translation preserves the relative look direction).
+_ARIA_EYE = (0.204, -0.00735, 0.434)          # left_cam extrinsics -> aria_rgb_cam (+0.04365 Y)
 _ARIA_ROT = (0.660, 0.230, -0.210, -0.683)    # (w,x,y,z) OpenGL, from left_cam rotation
-_OAKD_EYE = (0.175, -0.040, 0.469)            # right_cam extrinsics -> oakd_front_view
+_OAKD_EYE = (0.175, -0.08365, 0.469)          # right_cam extrinsics -> oakd_front_view (-0.04365 Y)
 _OAKD_ROT = (0.678, 0.235, -0.175, -0.674)    # (w,x,y,z) OpenGL, from right_cam rotation
 
-# Arm separation on Y. The calibration file says 0.6127, but that is an UNDERESTIMATE
-# (user determination 2026-06-12: the arms render too close at 0.6-0.7; settled on 0.80).
-# Do not blindly trust
-# configs/franka_orca_calibration.json's arm_separation_meters / left_base_to_right_base.
-ARM_SEPARATION_Y = 0.80
+# Arm separation on Y, taken from configs/franka_orca_calibration.json. This keeps the
+# full frame chain consistent: the camera eyes below are derived from the SAME two
+# cam->arm_base extrinsics, and left_base_to_right_base in that file is exactly
+# R_ext @ inv(L_ext) — the separation IS the extrinsics, not an independent measurement.
+# UPDATE (user, 2026-06-18): the rig geometry WAS re-measured. The physical setup is two
+# 70 cm x 100 cm tables side by side (70 cm on the sideways/Y axis, 100 cm forward/X), and
+# each Franka is centered on the sideways axis OF ITS OWN TABLE. Two adjacent 70 cm tables
+# => the arm bases are 0.70 m apart on Y. We adopt that physical value and, per the rule
+# above, shift the camera eyes by the matching base delta (+/-0.04365 m, see _ARIA/_OAKD_EYE)
+# so the calibrated camera<->base offset is preserved. This supersedes the old 0.6127
+# calibration value (which the user had flagged as possibly untrustworthy).
+ARM_SEPARATION_Y = 0.70
+
+# TCP (end-effector) offset from the Franka flange (panda_link8), in the flange frame.
+# From the Franka GUI "Transformation Matrix from Flange to End-Effector" (user 2026-06-18):
+# translation (0.13, 0, 0.07) m, identity rotation. The recorded arm poses are TCP poses,
+# so the IK targets the flange at  TCP - R_flange @ TCP_OFFSET  (eval_utils/export_xyzw_full.py),
+# and the replay overlay passes it as --ee-offset "0.13 0 0.07 1 0 0 0" (px py pz qw qx qy qz).
+TCP_OFFSET = (0.13, 0.0, 0.07)
 
 # Base placement: the h5 "left" arm stands at +Y, the "right" arm at -Y (the sim world
 # X axis points forward into the workspace, so +Y is image-left for the front cameras...
@@ -241,15 +260,37 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
     # bases at x=0: a Franka base sphere (r=0.06 at z=0) spans z in [-0.06, 0.06] and would
     # interpenetrate a collidable table top at z=0.05, which makes PhysX hang. The arms now
     # reach forward+down onto the table. Objects sit at x in [0.30, 0.38] (well on the table).
+    # PHYSICAL footprint (user 2026-06-18): two 70cm(Y) x 100cm(X) tables side by side =>
+    # 1.40 m on Y, 1.00 m forward on X. Each Franka base (at world Y=+/-0.35) is centered on
+    # its own 70cm table. The Franka's rear mounting holes sit ~10 cm in front of the table's
+    # rear edge, so the rear edge is ~0.15 m BEHIND the base origin (rear holes ~5 cm behind
+    # the base center) and the table runs forward to x~+0.85 (rear -0.15 + 1.00 depth).
+    #
+    # The table is split into two cuboids because a COLLIDABLE top at z=0.05 that overlaps the
+    # base sphere (r=0.06 at z=0) makes PhysX hang (see the long history that pinned the old
+    # near edge at x=0.15):
+    #   - `table`      : forward collidable pad x in [0.15, 0.85] (clears the base) — objects
+    #                    and hands rest on this. physics_material = grip.
+    #   - `table_rear` : rear visual-only strip x in [-0.15, 0.15] under the bases, so the
+    #                    robots look table-mounted. NO collision => cannot interpenetrate the base.
+    # Together they span the true 1.00 m x 1.40 m footprint with the top at _TABLE_TOP=0.05.
     table = AssetBaseCfg(
         prim_path="/World/Table",
         spawn=sim_utils.CuboidCfg(
-            size=(0.9, 0.8, 0.05),
+            size=(0.70, 1.40, 0.05),
             collision_props=sim_utils.CollisionPropertiesCfg(),
             physics_material=_GRIP_MAT,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.4, 0.2), roughness=1.0),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.6, 0.0, 0.025)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.50, 0.0, 0.025)),
+    )
+    table_rear = AssetBaseCfg(
+        prim_path="/World/TableRear",
+        spawn=sim_utils.CuboidCfg(
+            size=(0.30, 1.40, 0.05),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.4, 0.2), roughness=1.0),
+        ),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 0.025)),
     )
 
     # ---- Manipulable objects, approximating the bag_groceries training scene ----

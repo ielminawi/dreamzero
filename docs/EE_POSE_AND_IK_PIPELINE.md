@@ -15,8 +15,16 @@ Layout of each 7-vector (per arm):
 |-----|---|---|---|---|---|---|---|
 | meaning | x | y | z | qx | qy | qz | qw |
 
-- `[0:3]` = **position of the Franka flange (`panda_link8`) in that arm's BASE frame**, meters.
+- `[0:3]` = **position of the TCP (Franka end-effector) in that arm's BASE frame**, meters.
   Base axes are world-aligned (identity base rotation); +X points forward into the workspace.
+  - **UPDATE 2026-06-18:** the reference point is the **TCP, not the flange**. Per the Franka
+    GUI "Transformation Matrix from Flange to End-Effector" (user-provided), the TCP sits at
+    translation **(0.13, 0, 0.07) m, identity rotation, in the flange (`panda_link8`) frame**
+    (`TCP = flange · T_flange_tcp`). The IK therefore targets the flange at
+    `flange = TCP − R_flange · (0.13, 0, 0.07)` (the offset is a pure translation, so TCP and
+    flange share orientation). See `--tcp-offset` in `export_xyzw_full.py` and `TCP_OFFSET` in
+    `sim_envs/franka_orca_bimanual_cfg.py`. Pass `--tcp-offset "0 0 0"` to recover the old
+    flange-as-target behaviour.
 - `[3:7]` = **orientation quaternion, scalar-LAST (XYZW)**, i.e. `(qx,qy,qz,qw)`. It is the
   absolute flange orientation in the base frame. Unit norm to machine precision.
   - IMPORTANT: it is NOT scalar-first (wxyz), and NOT the conjugate. Reading it as wxyz or
@@ -69,7 +77,8 @@ LIMITS = [[-2.8973,2.8973],[-1.7628,1.7628],[-2.8973,2.8973],[-3.0718,-0.0698],
 Q_HOME = [0.0,-0.569,0.0,-2.81,0.0,3.037,0.741]
 ```
 
-Per frame, target flange pose = `(pos = field[0:3], R = quat_xyzw(field[3:7]))`. Solve:
+Per frame the recorded pose is the TCP; the flange position target is
+`pos = field[0:3] − R · (0.13, 0, 0.07)` (R = `quat_xyzw(field[3:7])`), orientation `R` as-is. Solve:
 
 ```python
 def resid(q):
@@ -138,9 +147,10 @@ Also baked in earlier: the -45° flange yaw and the 90° Gavin bracket; j6 lower
 
 ## Still open / not perfect
 
-- Flange-vs-hand reference point: the pose is treated as the flange (`panda_link8`); the hand
-  attaches via the fixed Gavin mount. This reproduces the videos but a residual hand-frame
-  offset has not been fully ruled out.
+- Flange-vs-TCP reference point: RESOLVED 2026-06-18 — the pose is the TCP, offset
+  (0.13, 0, 0.07) m from the flange (`panda_link8`) per the Franka GUI. The IK backs this out
+  to target the flange; validate the new hand placement against the real videos (the hand now
+  sits ~13 cm closer to the base + 7 cm offset vs the old flange-as-target solution).
 - The on-screen EE error in `replay_h5_ik` videos (~16-20 mm mean) is the one-step physics
   settle from teleporting exact joints, not a convention error (offline IK is 0.02 mm).
 - Sim is not yet pixel-faithful to the real videos; camera/mount/scene refinement ongoing.
