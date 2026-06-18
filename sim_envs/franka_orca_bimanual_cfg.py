@@ -57,11 +57,8 @@ _ARIA_ROT = (0.7173, 0.2475, -0.1892, -0.6232)  # (w,x,y,z) OpenGL, calib + 10de
 # 2026-06-18 (user): the calibration extrinsics are unreliable; the OAK-D height was
 # re-measured BY HAND to 0.88 m above the table surface. Table top is at _TABLE_TOP=0.05,
 # so the world Z = 0.05 + 0.88 = 0.93 (was 0.469 from calib). X and Y left as calibrated.
-_OAKD_EYE = (0.175, -0.08365, 0.93)           # right_cam extrinsics; Z = hand-measured 0.88 above table
-# 2026-06-18 (user): tilted the OAK-D DOWN 15deg about its own local X (sensor-row) axis
-# on top of the calib rotation (optical axis 55.9 -> 70.7deg below horizontal). Calib base
-# quat was (0.678, 0.235, -0.175, -0.674).
-_OAKD_ROT = (0.7029, 0.1445, -0.0855, -0.6911)  # (w,x,y,z) OpenGL, calib + 15deg local-X down
+_OAKD_EYE = (0.175, -0.08365, 0.65)           # right_cam extrinsics; Z = hand-measured 0.88 above table
+_OAKD_ROT = (0.678, 0.235, -0.175, -0.674)  # (w,x,y,z) OpenGL, calibration rotation (no added tilt)
 
 # Arm separation on Y, taken from configs/franka_orca_calibration.json. This keeps the
 # full frame chain consistent: the camera eyes below are derived from the SAME two
@@ -277,36 +274,41 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
     # interpenetrate a collidable table top at z=0.05, which makes PhysX hang. The arms now
     # reach forward+down onto the table. Objects sit at x in [0.30, 0.38] (well on the table).
     # PHYSICAL footprint (user 2026-06-18): two 70cm(Y) x 100cm(X) tables side by side =>
-    # 1.40 m on Y, 1.00 m forward on X. Each Franka base (at world Y=+/-0.35) is centered on
-    # its own 70cm table. The Franka's rear mounting holes sit ~10 cm in front of the table's
-    # rear edge, so the rear edge is ~0.15 m BEHIND the base origin (rear holes ~5 cm behind
-    # the base center) and the table runs forward to x~+0.85 (rear -0.15 + 1.00 depth).
+    # 1.40 m on Y, 1.00 m forward on X. Each Franka is centered on the sideways (Y) axis of
+    # its own 70cm table, so the two bases sit at world Y=+/-0.35 (= ARM_SEPARATION_Y/2).
+    # Forward (X) mounting (user 2026-06-18): the two REAR mounting holes of the Franka are
+    # 10 cm in front of the table's rear edge. The rear holes sit ~0.135 m BEHIND the base
+    # origin panda_link0 (the link0 collision mesh reaches x=-0.154; the holes are just inboard
+    # of that rear edge), so:
+    #     rear table edge  = rear_hole_x - 0.10 = -0.135 - 0.10 = -0.235
+    #     front table edge = rear edge + 1.00 (depth)           = +0.765
     #
     # The table is split into two cuboids because a COLLIDABLE top at z=0.05 that overlaps the
-    # base sphere (r=0.06 at z=0) makes PhysX hang (see the long history that pinned the old
-    # near edge at x=0.15):
-    #   - `table`      : forward collidable pad x in [0.15, 0.85] (clears the base) — objects
+    # base sphere (r=0.06 at z=0) makes PhysX hang (see the long history that pinned the
+    # collidable near edge at x=0.15 — the base is still at x=0, so that boundary is unchanged):
+    #   - `table`      : forward collidable pad x in [0.15, 0.765] (clears the base) — objects
     #                    and hands rest on this. physics_material = grip.
-    #   - `table_rear` : rear visual-only strip x in [-0.15, 0.15] under the bases, so the
+    #   - `table_rear` : rear visual-only strip x in [-0.235, 0.15] under the bases, so the
     #                    robots look table-mounted. NO collision => cannot interpenetrate the base.
-    # Together they span the true 1.00 m x 1.40 m footprint with the top at _TABLE_TOP=0.05.
+    # Together they span the true 1.00 m (x in [-0.235, 0.765]) x 1.40 m footprint, top at
+    # _TABLE_TOP=0.05.
     table = AssetBaseCfg(
         prim_path="/World/Table",
         spawn=sim_utils.CuboidCfg(
-            size=(0.70, 1.40, 0.05),
+            size=(0.615, 1.40, 0.05),
             collision_props=sim_utils.CollisionPropertiesCfg(),
             physics_material=_GRIP_MAT,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.4, 0.2), roughness=1.0),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.50, 0.0, 0.025)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.4575, 0.0, 0.025)),
     )
     table_rear = AssetBaseCfg(
         prim_path="/World/TableRear",
         spawn=sim_utils.CuboidCfg(
-            size=(0.30, 1.40, 0.05),
+            size=(0.385, 1.40, 0.05),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.4, 0.2), roughness=1.0),
         ),
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 0.025)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(-0.0425, 0.0, 0.025)),
     )
 
     # ---- Manipulable objects, approximating the bag_groceries training scene ----
@@ -501,7 +503,7 @@ class FrankaOrcaSceneCfg(InteractiveSceneCfg):
             # ~69deg HFOV at 960x540). 2026-06-18 (user): the previous hand-tuned focal=20
             # (HFOV ~55deg) was zoomed in way too far. The calibration json has NO intrinsics,
             # so this comes from the OAK-D sensor spec, not a measurement.
-            focal_length=20.0,
+            focal_length=15.3,
             horizontal_aperture=20.955,
         ),
         offset=CameraCfg.OffsetCfg(
