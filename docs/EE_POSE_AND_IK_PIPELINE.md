@@ -133,11 +133,29 @@ To regenerate the full-episode joint trajectory:
 
 Also baked in earlier: the -45° flange yaw and the 90° Gavin bracket; j6 lower limit -1.0.
 
-## Tooling map (eval_utils/, run via docker/scripts/run_*.sh in the dreamzero/isaac-sim:4.5.0 image)
+## Tooling map (eval_utils/; on Euler everything Isaac runs via apptainer isaac-sim.sif, see euler/*.sbatch)
 
-- `export_xyzw_full.py` — full-episode EE-pose -> joints IK (the solver above).
-- `replay_h5_ik.py` — Isaac replay from a joints npz (`--joints-npz`) or online diff-IK;
-  emits real|sim videos (aria / oak-d / side-by-side / perspective) + EE-error curves.
+- `ee_ik.py` — the SHARED FK/IK module (analytic Panda flange FK, `fk_pose7`, warm-started
+  bounded least-squares `solve_ik`/`solve_chunk`, dataset-hemisphere `canonical_quat_xyzw`).
+  Importable host-side (.venv) and inside isaac-sim.sif (scipy 1.10 bundled). ~25 ms/frame
+  warm-started, <0.05 mm residual on recorded data.
+- `export_xyzw_full.py` — full-episode EE-pose -> joints IK (standalone; same math).
+  NOTE: pass `--h5` explicitly (the default repo-root h5 copy is gone).
+- `replay_h5.py --joints-npz <ik npz>` — Isaac GT replay driving the ARMS from the IK'd
+  joint trajectory (hands from the h5); logs joint tracking + FK-vs-recorded EE error.
+  Launch: `DZ_JOINTS_NPZ=... DZ_MAXSTEPS=... sbatch euler/replay_h5.sbatch`. Without
+  `--joints-npz` it falls back to the legacy (known-wrong) poses-as-joints + remap path.
+- `run_sim_eval_bimanual.py` — CLOSED-LOOP policy eval with the IK bridge built in:
+  obs arm proprioception = FK(sim joints) -> EE pose (dataset convention), and each
+  received action chunk's arm EE poses are IK'd to joint targets (warm-started from the
+  current sim joints). Dumps a per-episode `episode_*_traj.npz` (ee/q cmd vs meas, IK
+  residuals). Launch: `sbatch euler/run_e2e.sbatch` (policy server + Isaac on one node).
+- `scripts/data/convert_h5_to_lerobot.py --arm-ee-to-joints [--skip-videos]` /
+  `ARM_TO_JOINTS=1 bash scripts/data/preprocess_bag_groceries.sh` — JOINT-SPACE dataset
+  conversion: IKs the arm EE-pose blocks of state+action during preprocessing (output
+  `data/franka_orca_lerobot_joints`, videos symlinked from the EE dataset). Downstream
+  GEAR stats/relative-stats are recomputed from the converted data, so joint actions are
+  q99-normalized correctly with no further changes.
 - `project_ee_pose_check.py` — host-side: project recorded EE position into the calibrated
   cameras (no Isaac), sanity-check it lands on the hand.
 - `render_left_hand_closeup.py` — 8 cameras auto-aimed at `{side}_palm` for hand inspection.

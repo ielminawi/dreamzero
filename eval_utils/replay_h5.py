@@ -28,6 +28,11 @@ parser.add_argument("--init-to-first", action="store_true", default=True,
 parser.add_argument("--remap-arm", action="store_true", default=True,
                     help="apply configured real->sim arm joint-convention remap")
 parser.add_argument("--no-remap-arm", dest="remap_arm", action="store_false")
+parser.add_argument("--joints-npz", type=str, default=None,
+                    help="npz with ik_left/ik_right (T,7) joint trajectories (from "
+                         "eval_utils/export_xyzw_full.py). Drives the ARMS from these IK'd "
+                         "joints instead of misreading the h5 EE-pose 7-vectors as joint "
+                         "angles; hands still come from the h5. Implies no arm remap.")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 args.enable_cameras = True
@@ -72,16 +77,30 @@ def main():
     T = min(len(al), len(ar), len(hl), len(hr))
     log(f"episode length T={T}; arm{al.shape[1]} hand{hl.shape[1]} per side")
     al = al[:T]; ar = ar[:T]; hl = hl[:T]; hr = hr[:T]
-    # Apply the configured arm joint-convention remap (real -> sim).
-    # Without this the recorded arm joint4 (~+0.9) is outside the sim limit [-3.07,-0.07]
-    # and clamps (arms go out of view). Disable with --no-remap-arm to see the broken case.
-    from sim_envs.franka_orca_bimanual_cfg import real_arm_to_sim, ARM_SIM_FROM_REAL
-    if args.remap_arm:
-        log(f"APPLYING arm remap real->sim: ARM_SIM_FROM_REAL={ARM_SIM_FROM_REAL}")
-        al = np.stack([real_arm_to_sim(a, "left") for a in al]).astype(np.float32)
-        ar = np.stack([real_arm_to_sim(a, "right") for a in ar]).astype(np.float32)
+    if args.joints_npz:
+        # The h5 arm 7-vectors are EE POSES, not joint angles (docs/EE_POSE_AND_IK_PIPELINE.md).
+        # Drive the arms from the IK'd joint trajectory instead. Those joints are already in
+        # the sim URDF convention (the IK limits match generate_combined_urdf.py) — no remap.
+        ee_l, ee_r = al.copy(), ar.copy()  # recorded EE pose targets, for EE-error logging
+        d = np.load(args.joints_npz)
+        ik_l, ik_r = d["ik_left"], d["ik_right"]
+        Tn = min(T, len(ik_l), len(ik_r))
+        log(f"ARMS FROM IK JOINTS {args.joints_npz} (T={Tn}, "
+            f"ik resid pos max {float(d['pos_err_left'].max())*1000:.2f}/"
+            f"{float(d['pos_err_right'].max())*1000:.2f} mm L/R)")
+        T = Tn
+        al = ik_l[:T].astype(np.float32); ar = ik_r[:T].astype(np.float32)
+        hl = hl[:T]; hr = hr[:T]
     else:
-        log("NO arm remap (raw recorded actions)")
+        # LEGACY (known-wrong: misreads EE poses as joint angles + empirical remap).
+        # Apply the configured per-side arm joint-convention remap (real -> sim).
+        from sim_envs.franka_orca_bimanual_cfg import real_arm_to_sim, ARM_SIM_FROM_REAL
+        if args.remap_arm:
+            log(f"APPLYING arm remap real->sim: ARM_SIM_FROM_REAL={ARM_SIM_FROM_REAL}")
+            al = np.stack([real_arm_to_sim(a, "left") for a in al]).astype(np.float32)
+            ar = np.stack([real_arm_to_sim(a, "right") for a in ar]).astype(np.float32)
+        else:
+            log("NO arm remap (raw recorded actions)")
     # full 48-dim action in TRAINING layout [L_arm, R_arm, L_hand, R_hand]
     actions = np.concatenate([al, ar, hl, hr], axis=-1).astype(np.float32)
     log("recorded action ranges (rad):")
@@ -123,9 +142,17 @@ def main():
             arm_cmd = actions[t, 0:7]
             arm_ach = get_left_arm_joint_pos(env)[0].cpu().numpy()
             aerr = np.abs(arm_ach - arm_cmd)
-            log(f"\n[step {t}] L_arm cmd vs achieved (max|err|={aerr.max():.3f})  [j4,j6 are the remapped ones]")
+            log(f"\n[step {t}] L_arm cmd vs achieved (max|err|={aerr.max():.3f})")
             log(f"  arm_cmd(sim)={np.round(arm_cmd,2)}")
             log(f"  arm_ach     ={np.round(arm_ach,2)}")
+            if args.joints_npz:
+                # EE-space error: FK of achieved joints vs the RECORDED flange pose.
+                from eval_utils.ee_ik import fk_pose7
+                arm_ach_r = get_right_arm_joint_pos(env)[0].cpu().numpy()
+                for side, ach_q, ee_tgt in (("L", arm_ach, ee_l[t]), ("R", arm_ach_r, ee_r[t])):
+                    ee_now = fk_pose7(ach_q)
+                    perr = np.linalg.norm(ee_now[:3] - ee_tgt[:3]) * 1000
+                    log(f"  {side}_arm EE |pos err| vs recorded pose = {perr:.1f} mm")
             # HAND: commanded vs achieved (training order)
             ach = get_left_hand_joint_pos(env)[0].cpu().numpy()
             cmd = hl[t]

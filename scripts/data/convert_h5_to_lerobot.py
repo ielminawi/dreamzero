@@ -56,6 +56,9 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+# repo root on sys.path so eval_utils.ee_ik is importable when run as a script
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
 
@@ -109,6 +112,68 @@ def read_and_concat(h5f: h5py.File, keys: list[str]) -> np.ndarray:
             arr = arr.reshape(-1, 1)
         arrays.append(arr)
     return np.concatenate(arrays, axis=-1)
+
+
+def deglitch_arm_ee(vec48: np.ndarray, ep_idx: int, what: str, thr: float = 0.05) -> tuple[np.ndarray, int]:
+    """Remove single-frame tracking glitches from the arm EE-pose blocks of a (T,48) array.
+
+    The raw streams contain occasional teleports (frame-to-frame EE jumps up to tens of
+    meters in 20 ms — physically impossible; worst real Panda EE speed is ~1.7 m/s =
+    0.034 m/frame at 50 fps). A frame is flagged when its position deviates from the
+    local median (window 5) by more than `thr` meters; flagged frames are linearly
+    interpolated from clean neighbors (quat renormalized). Without this, glitches blow
+    up q99/relative stats — catastrophically so after EE->joint IK, where an unreachable
+    teleport target slams joints across the workspace.
+    Returns (cleaned array, number of frames fixed).
+    """
+    from scipy.ndimage import median_filter
+
+    out = vec48.copy()
+    n_fixed = 0
+    for name, a, b in (("left", 0, 7), ("right", 7, 14)):
+        arr = out[:, a:b]
+        med = median_filter(arr[:, :3], size=(5, 1), mode="nearest")
+        bad = np.linalg.norm(arr[:, :3] - med, axis=1) > thr
+        if not bad.any():
+            continue
+        good = np.where(~bad)[0]
+        if len(good) < 2:
+            log.warning("ep %d %s %s arm: too few clean frames to deglitch", ep_idx, what, name)
+            continue
+        bad_idx = np.where(bad)[0]
+        for d in range(arr.shape[1]):
+            arr[bad_idx, d] = np.interp(bad_idx, good, arr[good, d])
+        qn = np.linalg.norm(arr[bad_idx, 3:7], axis=1, keepdims=True)
+        arr[bad_idx, 3:7] /= np.maximum(qn, 1e-8)
+        n_fixed += int(bad.sum())
+    if n_fixed:
+        log.info("ep %d %s: deglitched %d arm frames (>%.0fmm off local median)",
+                 ep_idx, what, n_fixed, thr * 1000)
+    return out, n_fixed
+
+
+def arm_ee_to_joints(vec48: np.ndarray, ep_idx: int, what: str) -> np.ndarray:
+    """Replace the two arm EE-pose blocks of a (T, 48) array with IK'd joint angles.
+
+    The raw h5 arm 7-vectors are flange poses [x,y,z,qx,qy,qz,qw] in the arm base
+    frame (docs/EE_POSE_AND_IK_PIPELINE.md), NOT joint angles. This converts them to
+    7 Panda joint angles via warm-started least-squares IK (eval_utils/ee_ik.py), so
+    the resulting dataset is a true joint-space dataset: state/action arm dims become
+    joint angles that can drive the sim/robot directly. Hands are untouched.
+    Layout stays [arm_left(7), arm_right(7), hand_left(17), hand_right(17)].
+    """
+    from eval_utils.ee_ik import solve_chunk, Q_HOME
+
+    out = vec48.copy()
+    for name, sl in (("left", slice(0, 7)), ("right", slice(7, 14))):
+        joints, pos_err, ori_err = solve_chunk(vec48[:, sl], Q_HOME)
+        out[:, sl] = joints
+        max_mm = float(pos_err.max()) * 1000.0
+        max_deg = float(np.degrees(ori_err.max()))
+        if max_mm > 5.0 or max_deg > 2.0:
+            log.warning("ep %d %s %s arm IK residual high: pos %.2f mm ori %.2f deg",
+                        ep_idx, what, name, max_mm, max_deg)
+    return out
 
 
 def encode_video(
@@ -246,6 +311,9 @@ def convert_episode(
     fps: float,
     task: str,
     target_resolution: tuple[int, int] | None = None,
+    arm_to_joints: bool = False,
+    skip_videos: bool = False,
+    deglitch: bool = False,
 ) -> int:
     """Convert a single episode. Returns the number of frames."""
     ep_idx, h5_path = args_tuple
@@ -254,6 +322,12 @@ def convert_episode(
     with h5py.File(h5_path, "r") as h5f:
         state = read_and_concat(h5f, STATE_KEYS)
         action = read_and_concat(h5f, ACTION_KEYS)
+        if deglitch:
+            state, _ = deglitch_arm_ee(state, ep_idx, "state")
+            action, _ = deglitch_arm_ee(action, ep_idx, "action")
+        if arm_to_joints:
+            state = arm_ee_to_joints(state, ep_idx, "state")
+            action = arm_ee_to_joints(action, ep_idx, "action")
         T = state.shape[0]
 
         # --- Parquet (global index fixed up later) ---
@@ -264,6 +338,8 @@ def convert_episode(
         df.to_parquet(parquet_path, index=False)
 
         # --- Videos ---
+        if skip_videos:
+            return T
         for h5_key, cam_name in CAMERA_KEYS.items():
             frames = h5f[h5_key][:]
             video_dir = (
@@ -288,6 +364,9 @@ def convert(
     max_episodes: int | None = None,
     num_workers: int | None = None,
     target_resolution: tuple[int, int] | None = None,
+    arm_to_joints: bool = False,
+    skip_videos: bool = False,
+    deglitch: bool = False,
 ) -> None:
     h5_files = get_h5_files(input_dir)
     if not h5_files:
@@ -330,7 +409,12 @@ def convert(
     if num_workers is None:
         num_workers = min(os.cpu_count() or 1, len(h5_files))
 
-    worker_fn = partial(convert_episode, output_dir=output_dir, fps=fps, task=task, target_resolution=target_resolution)
+    if arm_to_joints:
+        log.info("ARM EE->JOINT conversion ON: arm dims of state/action will be IK'd to "
+                 "Panda joint angles (adds ~%d IK solves per episode)", 4 * 4000)
+    worker_fn = partial(convert_episode, output_dir=output_dir, fps=fps, task=task,
+                        target_resolution=target_resolution, arm_to_joints=arm_to_joints,
+                        skip_videos=skip_videos, deglitch=deglitch)
     indexed_files = list(enumerate(h5_files))
 
     if num_workers <= 1:
@@ -407,6 +491,26 @@ def main():
         "--target-resolution", type=str, default=None,
         help="Resize all cameras to WxH (e.g. '640x480'). Required when cameras have different resolutions.",
     )
+    parser.add_argument(
+        "--deglitch-arms", action="store_true", default=False,
+        help="Interpolate over single-frame tracking glitches in the arm EE-pose streams "
+             "(>5cm off the local median; raw data has teleports up to tens of meters that "
+             "corrupt q99/relative stats, catastrophically after EE->joint IK).",
+    )
+    parser.add_argument(
+        "--skip-videos", action="store_true", default=False,
+        help="Skip video encoding (parquet + meta only). Use when the videos already exist "
+             "from a previous conversion of the same source (e.g. an EE->joint re-conversion) "
+             "and can be symlinked/copied.",
+    )
+    parser.add_argument(
+        "--arm-ee-to-joints", action="store_true", default=False,
+        help="Convert the arm EE-pose 7-vectors (x,y,z + XYZW quat flange pose; the raw h5 "
+             "'qpos_arm'/'actions_arm' fields are poses, not joints) into Panda joint angles "
+             "via IK, producing a joint-space dataset. Downstream q99/relative stats are "
+             "recomputed from the converted data by convert_lerobot_to_gear.py, so joint "
+             "actions get normalized correctly with no further changes.",
+    )
     args = parser.parse_args()
 
     target_resolution = None
@@ -422,6 +526,9 @@ def main():
         max_episodes=args.max_episodes,
         num_workers=args.num_workers,
         target_resolution=target_resolution,
+        arm_to_joints=args.arm_ee_to_joints,
+        skip_videos=args.skip_videos,
+        deglitch=args.deglitch_arms,
     )
 
 

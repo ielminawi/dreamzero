@@ -740,6 +740,27 @@ class BaseExperiment(ABC):
                     and model.action_head.config.defer_lora_injection):
                 model.action_head.inject_lora_after_loading()
 
+            # --- Optional WARM-START: load a prior LoRA checkpoint's delta + robot-MLP weights
+            #     AFTER injection. Their keys live in the post-PEFT namespace (base_model.model.*),
+            #     so they CANNOT be loaded via pretrained_model_path (which runs pre-injection and
+            #     would silently drop them). Shape-filtered so a mismatched rank/dim is skipped, not
+            #     fatal. Base DiT (incl. any newly-unfrozen top-K blocks) still comes from the base. ---
+            ws_path = OmegaConf.select(cfg, "warmstart_lora_path", default=None)
+            if ws_path:
+                mprint(f"[warmstart] loading prior LoRA delta from: {ws_path}")
+                ws_sd = load_file(os.path.join(ws_path, "model.safetensors"))
+                cur_shapes = {k: v.shape for k, v in model.state_dict().items()}
+                ws_sd = {k: v for k, v in ws_sd.items()
+                         if not (k in cur_shapes and v.shape != cur_shapes[k])}
+                mk, uk = model.load_state_dict(ws_sd, strict=False)
+                landed = len(ws_sd) - len(uk)
+                mprint(f"[warmstart] {len(ws_sd)} keys -> landed {landed}, "
+                       f"{len(uk)} unexpected, {len(mk)} model params left unfilled")
+                if len(ws_sd) > 0 and landed == 0:
+                    raise RuntimeError(
+                        f"[warmstart] 0 of {len(ws_sd)} keys landed in the model — namespace "
+                        f"mismatch (PEFT prefix?). Refusing to start a warm-start that loaded nothing.")
+
             mprint("Successfully loaded pretrained weights")
 
         model.config.resume_path = model.config._name_or_path = training_args.output_dir

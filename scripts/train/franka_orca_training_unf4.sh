@@ -1,56 +1,35 @@
 #!/bin/bash
-# DreamZero Franka+Orca Bimanual Training Script
+# DreamZero Franka+Orca — WARM-START + UNFREEZE-TOP-4 variant.
 #
-# Usage:
-#   bash scripts/train/franka_orca_training.sh
+# Fixes the under-conditioned action head: a frozen-DiT LoRA (any rank) cannot route
+# action<->vision attention (rank4 ~= rank16 in eval). This run additionally FULL-finetunes
+# the top-4 DiT blocks, warm-started from the rank-16 checkpoint so the franka adaptation
+# carries over. Keeps rank/alpha=16 (alpha bump would 2x the warm-started LoRA scaling).
 #
-# Prerequisites:
-#   - Dataset converted to LeRobot format with GEAR metadata at FRANKA_ORCA_DATA_ROOT
-#     (run convert_h5_to_lerobot.py then convert_lerobot_to_gear.py first)
-#   - Wan2.1-I2V-14B-480P weights (auto-downloaded from HuggingFace)
-#   - umt5-xxl tokenizer (auto-downloaded from HuggingFace)
-#   - DreamZero-AgiBot pretrained checkpoint
-#     git clone https://huggingface.co/GEAR-Dreams/DreamZero-AgiBot ./checkpoints/DreamZero-AgiBot
-
+# Env knobs (with defaults):
+#   OUTPUT_DIR            output checkpoint dir
+#   WARMSTART_LORA_PATH   prior LoRA ckpt to warm-start delta+MLPs from (post-injection load)
+#   UNFREEZE_TOP_K        number of top DiT blocks to full-finetune (default 4)
+#   MAX_STEPS / SAVE_STEPS
+set -eo pipefail
 export HYDRA_FULL_ERROR=1
 export ATTENTION_BACKEND=${ATTENTION_BACKEND:-torch}
 
-# ============ CHANGE THESE VARIABLES ============
-# Dataset path (LeRobot format with GEAR metadata)
 FRANKA_ORCA_DATA_ROOT=${FRANKA_ORCA_DATA_ROOT:-"./data/franka_orca_lerobot"}
+OUTPUT_DIR=${OUTPUT_DIR:-"./checkpoints/dreamzero_franka_orca_lora_r16unf4"}
+WARMSTART_LORA_PATH=${WARMSTART_LORA_PATH:-"./checkpoints/dreamzero_franka_orca_lora_r16/checkpoint-6000"}
+UNFREEZE_TOP_K=${UNFREEZE_TOP_K:-4}
 
-# Output directory for training checkpoints
-OUTPUT_DIR=${OUTPUT_DIR:-"./checkpoints/dreamzero_franka_orca_lora"}
-
-# Number of GPUs to use (default: all visible GPUs)
-if [ -z "${NUM_GPUS}" ]; then
-  NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
-fi
+if [ -z "${NUM_GPUS}" ]; then NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l); fi
 NUM_GPUS=${NUM_GPUS:-1}
-
-# Model weight paths (download from HuggingFace if not already present)
 WAN_CKPT_DIR=${WAN_CKPT_DIR:-"./checkpoints/Wan2.1-I2V-14B-480P"}
 TOKENIZER_DIR=${TOKENIZER_DIR:-"./checkpoints/umt5-xxl"}
-# =============================================
 
-# ============ AUTO-DOWNLOAD WEIGHTS ============
-if [ ! -d "$WAN_CKPT_DIR" ] || [ -z "$(ls -A "$WAN_CKPT_DIR" 2>/dev/null)" ]; then
-    echo "Wan2.1-I2V-14B-480P not found at $WAN_CKPT_DIR. Downloading from HuggingFace..."
-    huggingface-cli download Wan-AI/Wan2.1-I2V-14B-480P --local-dir "$WAN_CKPT_DIR"
-fi
-
-if [ ! -d "$TOKENIZER_DIR" ] || [ -z "$(ls -A "$TOKENIZER_DIR" 2>/dev/null)" ]; then
-    echo "umt5-xxl tokenizer not found at $TOKENIZER_DIR. Downloading from HuggingFace..."
-    huggingface-cli download google/umt5-xxl --local-dir "$TOKENIZER_DIR"
-fi
-# ================================================
-
-# Validate dataset exists
 if [ ! -d "$FRANKA_ORCA_DATA_ROOT" ]; then
-    echo "ERROR: Dataset not found at $FRANKA_ORCA_DATA_ROOT"
-    echo "Run convert_h5_to_lerobot.py and convert_lerobot_to_gear.py first."
-    exit 1
+    echo "ERROR: Dataset not found at $FRANKA_ORCA_DATA_ROOT"; exit 1
 fi
+
+echo "==> unf4 run: OUTPUT_DIR=$OUTPUT_DIR  WARMSTART=$WARMSTART_LORA_PATH  UNFREEZE_TOP_K=$UNFREEZE_TOP_K  MAX_STEPS=${MAX_STEPS:-14000}"
 
 torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment.py \
     report_to=${REPORT_TO:-none} \
@@ -69,12 +48,12 @@ torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment
     seed=42 \
     training_args.learning_rate=5e-5 \
     training_args.deepspeed="groot/vla/configs/deepspeed/zero2.json" \
-    save_steps=${SAVE_STEPS:-10000} \
+    save_steps=${SAVE_STEPS:-2000} \
     training_args.warmup_ratio=0.10 \
     output_dir=$OUTPUT_DIR \
     per_device_train_batch_size=1 \
     gradient_accumulation_steps=2 \
-    max_steps=${MAX_STEPS:-100000} \
+    max_steps=${MAX_STEPS:-14000} \
     weight_decay=1e-5 \
     save_total_limit=10 \
     upload_checkpoints=false \
@@ -98,7 +77,9 @@ torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment
     vae_pretrained_path=$WAN_CKPT_DIR/Wan2.1_VAE.pth \
     tokenizer_path=$TOKENIZER_DIR \
     pretrained_model_path=${PRETRAINED_PATH:-./checkpoints/DreamZero-AgiBot} \
+    ++warmstart_lora_path=$WARMSTART_LORA_PATH \
     ++action_head_cfg.config.skip_component_loading=true \
     ++action_head_cfg.config.defer_lora_injection=true \
     ++action_head_cfg.config.lora_rank=16 \
-    ++action_head_cfg.config.lora_alpha=16
+    ++action_head_cfg.config.lora_alpha=16 \
+    ++action_head_cfg.config.unfreeze_top_k_blocks=$UNFREEZE_TOP_K

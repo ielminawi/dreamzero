@@ -200,7 +200,8 @@ def main():
     ap.add_argument("--model-path", required=True)
     ap.add_argument("--dataset-dir", required=True)
     ap.add_argument("--embodiment", default="franka_orca_bimanual")
-    ap.add_argument("--clip", default="32:1600", help="ep:start")
+    ap.add_argument("--clip", default="32:1600",
+                    help="ep:start, or comma-separated list 'ep:start,ep:start,...'")
     ap.add_argument("--other-ep", type=int, default=73, help="episode for 'gtsim_other' wrong actions")
     ap.add_argument("--modes", default="gtsim,dream")
     ap.add_argument("--num-steps", type=int, default=10)
@@ -232,31 +233,34 @@ def main():
     os.makedirs(a.out_dir, exist_ok=True)
     import imageio.v2 as iio
     horizons = [int(x) for x in a.horizons.split(",")]
-    ep, start = (int(x) for x in a.clip.split(":"))
+    clips = [tuple(int(x) for x in c.split(":")) for c in a.clip.split(",")]
     modes = a.modes.split(",")
 
     stats = load_stats(os.path.join(a.dataset_dir, "meta", "relative_stats_dreamzero.json"))
-    df = pd.read_parquet(os.path.join(a.dataset_dir, "data", "chunk-000", f"episode_{ep:06d}.parquet"))
-    act = np.stack(df["action"].values)
-    st = np.stack(df["observation.state"].values)
     dfo = pd.read_parquet(os.path.join(a.dataset_dir, "data", "chunk-000", f"episode_{a.other_ep:06d}.parquet"))
     act_other = np.stack(dfo["action"].values)
     st_other = np.stack(dfo["observation.state"].values)
 
-    results, hh, ww = {}, None, None
-    for mode in modes:
-        log.info(f"rollout mode={mode} ep{ep} s{start} ...")
-        quads, hh, ww = rollout(policy, Batch, a.dataset_dir, ep, start, a.num_steps,
-                                a.frames_per_chunk, a.instruction, mode, act=act, st=st, stats=stats,
-                                act_other=act_other, st_other=st_other)
-        results[mode] = quads
-        tag = f"ep{ep:06d}_s{start:05d}_{mode}"
-        for cam in CONCAT_ORDER:
-            iio.mimsave(f"{a.out_dir}/{tag}_{cam}.mp4", list(quads[cam]), fps=10, codec="libx264")
-    plot_compare(results, hh, ww, a.dataset_dir, ep, start, horizons,
-                 f"{a.out_dir}/openloop_compare_ep{ep:06d}_s{start:05d}.png")
-    plot_curves(results, hh, ww, a.dataset_dir, ep, start,
-                f"{a.out_dir}/openloop_curves_ep{ep:06d}_s{start:05d}.png")
+    for ep, start in clips:
+        log.info(f"=== clip ep{ep} s{start} ===")
+        df = pd.read_parquet(os.path.join(a.dataset_dir, "data", "chunk-000", f"episode_{ep:06d}.parquet"))
+        act = np.stack(df["action"].values)
+        st = np.stack(df["observation.state"].values)
+
+        results, hh, ww = {}, None, None
+        for mode in modes:
+            log.info(f"rollout mode={mode} ep{ep} s{start} ...")
+            quads, hh, ww = rollout(policy, Batch, a.dataset_dir, ep, start, a.num_steps,
+                                    a.frames_per_chunk, a.instruction, mode, act=act, st=st, stats=stats,
+                                    act_other=act_other, st_other=st_other)
+            results[mode] = quads
+            tag = f"ep{ep:06d}_s{start:05d}_{mode}"
+            for cam in CONCAT_ORDER:
+                iio.mimsave(f"{a.out_dir}/{tag}_{cam}.mp4", list(quads[cam]), fps=10, codec="libx264")
+        plot_compare(results, hh, ww, a.dataset_dir, ep, start, horizons,
+                     f"{a.out_dir}/openloop_compare_ep{ep:06d}_s{start:05d}.png")
+        plot_curves(results, hh, ww, a.dataset_dir, ep, start,
+                    f"{a.out_dir}/openloop_curves_ep{ep:06d}_s{start:05d}.png")
     log.info("done.")
 
 
