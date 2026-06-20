@@ -263,3 +263,7 @@ archive/
 *.primbak
 *.meshbak
 *.bak
+
+# Euler SLURM logs and HF cache (large/transient; never commit)
+euler/logs/
+hf_cache/
