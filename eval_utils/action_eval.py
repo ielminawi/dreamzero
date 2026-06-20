@@ -92,6 +92,7 @@ def main():
     offs = {n: [] for n in seg_names}  # per-sample per-joint constant offset mean_h(pred-gt) -> consistency check
     samples = []                        # (ep,t, per-seg mae) for logging
     traces = None                       # save one chunk for trajectory plot
+    all_pred, all_gt, all_state, all_meta = [], [], [], []  # ALL chunks for offline motion analysis
 
     for ep in episodes:
         df = pd.read_parquet(os.path.join(a.dataset_dir, "data", "chunk-000", f"episode_{ep:06d}.parquet"))
@@ -128,7 +129,17 @@ def main():
                 offs[n].append((pred[:, aa:bb] - gt[:, aa:bb]).mean(axis=0).tolist())
                 rec[f"{n}_mae"] = float(pe.mean()); rec[f"{n}_stay_mae"] = float(se.mean())
                 rec[f"{n}_reanchored_mae"] = float(ra.mean())
+                # motion-capture: magnitude ratio ||pred_disp||/||gt_disp|| (>1 over-shoot, <1 under-predict)
+                # and direction cosine of predicted vs true within-chunk motion (per horizon, motion-weighted)
+                pdn = np.linalg.norm(pdisp, axis=1); gdn = np.linalg.norm(gdisp, axis=1)
+                rec[f"{n}_pred_disp"] = float(pdn.mean()); rec[f"{n}_gt_disp"] = float(gdn.mean())
+                m = gdn > 1e-4
+                if m.any():
+                    cs = (pdisp[m] * gdisp[m]).sum(1) / (np.linalg.norm(pdisp[m], axis=1) * gdn[m] + 1e-9)
+                    rec[f"{n}_dir_cos"] = float(cs.mean())
             samples.append(rec)
+            all_pred.append(pred.astype(np.float32)); all_gt.append(gt.astype(np.float32))
+            all_state.append(st[t].astype(np.float32)); all_meta.append((int(ep), int(t)))
             if traces is None:
                 traces = dict(ep=int(ep), t=int(t), pred=pred.tolist(), gt=gt.tolist(), state=st[t].tolist())
         log.info(f"ep{ep}: done {len(ts)} timesteps")
@@ -152,6 +163,11 @@ def main():
                           offset_consistency=off_consistency)   # ~1 = same bias every sample (real anchor bug); ~0 = random
     with open(os.path.join(a.out_dir, "action_accuracy.json"), "w") as f:
         json.dump(dict(summary=summary, samples=samples, traces=traces), f, indent=2)
+    # dump ALL chunk traces (compact binary) for offline over-shoot / direction analysis
+    if all_pred:
+        np.savez(os.path.join(a.out_dir, "all_traces.npz"),
+                 pred=np.stack(all_pred), gt=np.stack(all_gt),
+                 state=np.stack(all_state), meta=np.array(all_meta))
 
     log.info("=== ACTION-PREDICTION ACCURACY (MAE, radians) ===")
     log.info(f"{'segment':24s} {'policy':>8s} {'stay':>8s} {'policy<stay?':>12s} {'corr':>6s}")

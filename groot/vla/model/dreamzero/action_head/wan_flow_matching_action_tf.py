@@ -82,6 +82,9 @@ class WANPolicyHeadConfig(PretrainedConfig):
     unfreeze_top_k_blocks: int = field(default=0, metadata={"help": "If >0, additionally FULL-finetune the top-K DiT blocks (on top of LoRA). Strengthens action<->vision coupling that a frozen-backbone LoRA cannot. 0 = original LoRA-only behavior."})
     action_loss_segment_slices: list = field(default=None, metadata={"help": "Optional list of [start,end) dim slices (e.g. [[0,7],[7,14],[14,31],[31,48]] for arm_l/arm_r/hand_l/hand_r). If set, the action loss is the WEIGHTED MEAN OF PER-SEGMENT MEANS instead of a flat mean over all dims, so a segment's contribution is independent of its dim count (flat mean lets the 34 hand dims dominate the 14 arm dims ~71/29). None = original flat-mean behavior."})
     action_loss_segment_weights: list = field(default=None, metadata={"help": "Per-segment weights matching action_loss_segment_slices (normalized by their sum). None = equal weights."})
+    action_loss_variance_normalize: bool = field(default=False, metadata={"help": "If True, divide each action DIM's squared flow-matching error by that dim's precomputed normalized-target variance (action_loss_dim_variances) before averaging, so every dim contributes EQUALLY to the action loss. Fixes the under-learned within-chunk MOTION: a few near-constant large-offset arm dims (e.g. dim 6: E[tgt^2]~0.58 but var~0.004) otherwise dominate the velocity-MSE and the high-variance task-motion (hand) dims get little gradient. Default False = original behavior (in-flight jobs unaffected)."})
+    action_loss_dim_variances: list = field(default=None, metadata={"help": "Per-dim (length=action_dim) precomputed variance of the NORMALIZED relative action target, used by action_loss_variance_normalize. Compute offline from a few episodes (relative[k]=action-state, q99-normalized to [-1,1], var over chunk-steps)."})
+    action_loss_variance_floor: float = field(default=0.02, metadata={"help": "Floor applied to per-dim variances before inverse weighting (var_d -> max(var_d, floor)) so tiny-motion dims are not over-amplified. With floor=0.02 the residual per-dim motion-contribution imbalance is ~5x (vs 37x raw)."})
 
     use_gradient_checkpointing: bool = field(default=True, metadata={"help": "Whether to use gradient checkpointing."})
     qformer_cfg: dict = field(default=None, metadata={"help": "Qformer configuration."})
@@ -398,6 +401,31 @@ class WANPolicyHead(ActionHead):
                 cnt += p.numel()
         print(f"[unfreeze] FULL-finetuning top {k}/{n} DiT blocks ({cnt:,} params now trainable)")
 
+
+    def _get_action_dim_loss_weights(self, action_dim, device, dtype):
+        """Per-dim inverse-variance loss weights, normalized to mean 1 (so overall loss scale
+        is preserved). Cached after first build. w_d = (1/max(var_d, floor)) / mean_d(...).
+        Requires config.action_loss_dim_variances of length action_dim."""
+        cached = getattr(self, "_action_dim_loss_weights", None)
+        if cached is not None and cached.numel() == action_dim:
+            return cached.to(device=device, dtype=dtype)
+        var_list = getattr(self.config, "action_loss_dim_variances", None)
+        if var_list is None:
+            raise ValueError(
+                "action_loss_variance_normalize=True but action_loss_dim_variances is None; "
+                "provide a per-dim variance list (length=action_dim)."
+            )
+        var = torch.tensor([float(v) for v in var_list], dtype=torch.float32)
+        assert var.numel() == action_dim, (
+            f"action_loss_dim_variances has {var.numel()} entries but action_dim={action_dim}"
+        )
+        floor = float(getattr(self.config, "action_loss_variance_floor", 0.02) or 0.0)
+        inv = 1.0 / torch.clamp(var, min=max(floor, 1e-8))
+        w = inv / inv.mean()  # mean weight == 1
+        self._action_dim_loss_weights = w
+        print(f"[action-loss] variance-normalize ON: dim weights mean={w.mean():.3f} "
+              f"min={w.min():.3f} max={w.max():.3f} (floor={floor})")
+        return w.to(device=device, dtype=dtype)
 
     def inject_lora_after_loading(self):
         """
@@ -779,6 +807,20 @@ class WANPolicyHead(ActionHead):
                     action_noise_pred.float(), training_target_action.float(), reduction='none'
                 ) * action_mask  # shape: [B, ...]
                 action_loss_per_sample = has_real_action[:, None].float() * action_loss_per_sample  # apply has_real_action
+                # --- PER-DIM VARIANCE NORMALIZATION (flag-gated, default off) ---
+                # Equalize each action DIM's contribution to the loss by dividing its squared
+                # flow-matching error by that dim's normalized-target variance. Without this a
+                # few near-constant LARGE-offset arm dims dominate the velocity-MSE (E[tgt^2]
+                # ranges ~37x across dims) so the high-variance task MOTION dims get little
+                # gradient -> within-chunk motion is under-learned. Weights are normalized to
+                # mean 1 so the overall action-loss scale is preserved.
+                if getattr(self.config, "action_loss_variance_normalize", False):
+                    w = self._get_action_dim_loss_weights(
+                        action_loss_per_sample.shape[-1],
+                        action_loss_per_sample.device,
+                        action_loss_per_sample.dtype,
+                    )
+                    action_loss_per_sample = action_loss_per_sample * w
                 seg_slices = getattr(self.config, "action_loss_segment_slices", None)
                 if seg_slices:
                     # weighted mean of per-segment means: each segment contributes per its
@@ -802,6 +844,34 @@ class WANPolicyHead(ActionHead):
                     timestep_action.flatten(0, 1),
                 ).unflatten(0, (noise_action.shape[0], noise_action.shape[1])).to(self._device)
                 weighted_action_loss = weight_action.mean()
+                # --- WITHIN-CHUNK MOTION LOSS (flag-gated, default off) ---
+                # First-difference along the HORIZON axis (dim=1) of the flow-matching fields.
+                # The per-chunk anchor offset is CONSTANT across the horizon, so diff_T cancels
+                # it exactly -> this term's gradient is purely within-chunk MOTION SHAPE (the
+                # diagnosed-unlearned quantity). Uses the SAME segment-slice reduction as the
+                # action loss but deliberately does NOT apply the offset-derived per-dim variance
+                # weights w (those down-weight the high-motion hand dims = the pathology).
+                mw = float(getattr(self.config, "action_loss_motion_weight", 0.0) or 0.0)
+                if mw > 0.0:
+                    pf = action_noise_pred.float(); tf = training_target_action.float()
+                    dpred = pf[:, 1:] - pf[:, :-1]
+                    dtgt = tf[:, 1:] - tf[:, :-1]
+                    dmask = action_mask[:, 1:].float() * action_mask[:, :-1].float()
+                    motion_per = torch.nn.functional.mse_loss(dpred, dtgt, reduction='none') * dmask
+                    motion_per = has_real_action[:, None, None].float() * motion_per  # [B, T-1, D]
+                    if seg_slices:
+                        m_seg = torch.stack(
+                            [motion_per[..., a:b].mean(dim=2) for a, b in seg_slices], dim=0
+                        )  # [S, B, T-1]
+                        per_sample_motion = (seg_w[:, None, None] * m_seg).sum(0) / seg_w.sum()
+                    else:
+                        per_sample_motion = motion_per.mean(dim=2)
+                    tw_m = self.scheduler.training_weight(
+                        timestep_action.flatten(0, 1)
+                    ).unflatten(0, (noise_action.shape[0], noise_action.shape[1])).to(self._device)
+                    weighted_motion_loss = (per_sample_motion * tw_m[:, 1:]).mean()
+                    weighted_action_loss = weighted_action_loss + mw * weighted_motion_loss
+                    seg_losses['action_motion_loss'] = weighted_motion_loss.detach()
                 loss = weighted_dynamics_loss + weighted_action_loss
             else:
                 weighted_action_loss = torch.tensor(0.0, device=self._device)

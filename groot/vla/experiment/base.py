@@ -752,6 +752,17 @@ class BaseExperiment(ABC):
                 cur_shapes = {k: v.shape for k, v in model.state_dict().items()}
                 ws_sd = {k: v for k, v in ws_sd.items()
                          if not (k in cur_shapes and v.shape != cur_shapes[k])}
+                # Optionally drop the robot action-head MLPs so the joint head trains FRESH
+                # (the EE warm-start ckpt carries 48-dim-shape-compatible state/action
+                # encoder+decoder weights that would otherwise be inherited). Flag-gated,
+                # default off -> in-flight jobs that don't set it are unaffected.
+                if OmegaConf.select(cfg, "warmstart_skip_action_head_mlps", default=False):
+                    _mlp_names = ("state_encoder", "action_encoder", "action_decoder")
+                    _before = len(ws_sd)
+                    ws_sd = {k: v for k, v in ws_sd.items()
+                             if not any(f".{n}." in k for n in _mlp_names)}
+                    mprint(f"[warmstart] skip_action_head_mlps=True: dropped "
+                           f"{_before - len(ws_sd)} robot-MLP keys (fresh joint head)")
                 mk, uk = model.load_state_dict(ws_sd, strict=False)
                 landed = len(ws_sd) - len(uk)
                 mprint(f"[warmstart] {len(ws_sd)} keys -> landed {landed}, "
