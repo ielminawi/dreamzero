@@ -14,7 +14,7 @@
 # action_eval.py already computes). Answers: did training actually beat an untrained policy?
 set -uo pipefail
 DZ_REPO=/cluster/scratch/rjiang/dreamzero
-DATA="$DZ_REPO/data/franka_orca_lerobot_joints"
+DATA="${DATA:-$DZ_REPO/data/franka_orca_lerobot_joints_clean}"
 CKPT_TRAINED="${CKPT_TRAINED:-$DZ_REPO/checkpoints/dreamzero_franka_orca_lora_joints/checkpoint-5000}"
 UNTR_DIR="${UNTR_DIR:-$DZ_REPO/checkpoints/dreamzero_franka_orca_lora_joints_untrained}"
 CKPT_UNTRAINED="${CKPT_UNTRAINED:-$(ls -d "$UNTR_DIR"/checkpoint-* 2>/dev/null | sort -t- -k2 -n | tail -1)}"
