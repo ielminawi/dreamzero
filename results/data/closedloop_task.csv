@@ -1,0 +1,17 @@
+sim_run,episode,object,moved_cm,max_lift_cm
+19-22-13,0,grocery_bag,13.4,2.5
+19-22-13,0,white_container,0.5,0.2
+19-22-13,0,blue_tube,1.7,0.3
+19-22-13,0,round_item,672.6,0.0
+19-22-13,1,grocery_bag,14.1,2.5
+19-22-13,1,white_container,0.7,0.2
+19-22-13,1,blue_tube,1.3,0.3
+19-22-13,1,round_item,0.5,0.0
+19-56-31,0,grocery_bag,18.5,2.6
+19-56-31,0,white_container,0.5,0.2
+19-56-31,0,blue_tube,1.7,0.3
+19-56-31,0,round_item,672.6,0.0
+19-56-31,1,grocery_bag,22.8,3.3
+19-56-31,1,white_container,0.7,0.2
+19-56-31,1,blue_tube,2.2,0.3
+19-56-31,1,round_item,0.6,0.0

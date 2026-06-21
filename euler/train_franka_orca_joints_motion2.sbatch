@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=dz_jmot2
-#SBATCH --time=48:00:00
+#SBATCH --time=16:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
@@ -38,7 +38,7 @@ export WARMSTART_LORA_PATH="$REPO/checkpoints/dreamzero_franka_orca_lora_joints_
 export UNFREEZE_TOP_K=3
 export NUM_GPUS=1
 export MOTION_W=${MOTION_W:-2.0}
-export MAX_STEPS=${MAX_STEPS:-2000}
+export MAX_STEPS=${MAX_STEPS:-1500}
 export SAVE_STEPS=${SAVE_STEPS:-500}
 export SAVE_TOTAL_LIMIT=${SAVE_TOTAL_LIMIT:-5}
 export REPORT_TO=wandb
