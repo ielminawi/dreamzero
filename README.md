@@ -3,18 +3,14 @@
 
 DreamZero is a World Action Model that jointly predicts actions and videos, achieving strong zero-shot performance on unseen tasks. This release package contains everything needed to load a pretrained DreamZero model and run distributed inference via a WebSocket server.
 
-> ### 🤖 Franka + Orca bimanual (Isaac Sim closed-loop) — start here for this work
-> This fork adds a dual **Franka + Orca-hand** embodiment (`franka_orca_bimanual`, 48-dim) post-trained on the `bag_groceries` data, plus a validated closed-loop Isaac Sim eval. To reproduce / continue:
-> - **End-to-end setup → train → eval on Euler:** [`dreamzero_euler_complete_guide.md`](dreamzero_euler_complete_guide.md)
-> - **Closed-loop eval harness (server + Isaac, Blackwell RTX PRO 6000):** [`euler/README_EULER.md`](euler/README_EULER.md) — `bash euler/run_e2e.sh` (interactive) or `sbatch euler/run_e2e.sbatch`
-> - **Sim joint-setup / scene objects / physics-fidelity / collisions — what was validated and how:** [`docs/SIM_VALIDATION_AND_SCENE.md`](docs/SIM_VALIDATION_AND_SCENE.md); quick checker `sbatch euler/inspect_joints.sbatch`
-> - **Data conversion + new-embodiment guide:** [`docs/DATASET_TO_GEAR_AND_TRAIN.md`](docs/DATASET_TO_GEAR_AND_TRAIN.md)
+> ### 🤖 Franka + Orca bimanual (Isaac Sim closed-loop)
+> This fork adds a dual **Franka + Orca-hand** embodiment (`franka_orca_bimanual`, 48-dim) post-trained on the `bag_groceries` data, plus a validated closed-loop Isaac Sim eval. The sim environment lives in `sim_envs/`; closed-loop eval runs via `eval_utils/run_sim_eval_bimanual.py` against the inference server.
 
 ## News
 
 - **02/27:** DreamZero is **#1 on both [MolmoSpaces]([https://huggingface.co/spaces/ai2-adapt/MolmoSpaces](https://molmospaces.allen.ai/leaderboard)) and [RoboArena]([https://robo-arena.github.io/](https://robo-arena.github.io/leaderboard))**! DreamZero-DROID is trained *from scratch* using only the DROID dataset — no pretraining on large-scale robot data, unlike competing VLAs. This demonstrates the strength of video-model backbones for generalist robot policies (VAMs/WAMs).
 - **02/27:** Released **DreamZero-AgiBot checkpoint** and **post-training code** for efficient few-shot adaptation. Post-train on just ~30 minutes of play data for your specific robot, and see the robot do basic language following and pick-and-place (see YAM experiments in our paper for more detail).
-- **02/20:** Released the **full training codebase, preprocessed dataset, and guide for new embodiments** to replicate the DreamZero-DROID checkpoint and train on your own robot. See [Adding a New Embodiment to DreamZero](docs/DATASET_TO_GEAR_AND_TRAIN.md) for a step-by-step walkthrough.
+- **02/20:** Released the **full training codebase and preprocessed dataset** to replicate the DreamZero-DROID checkpoint and train on your own robot. See the dataset conversion scripts under `scripts/data/` for the workflow.
 
 ## Features
 
@@ -27,7 +23,7 @@ DreamZero is a World Action Model that jointly predicts actions and videos, achi
 - [RoboArena](https://robo-arena.github.io/) integration (DROID real)
 - Video generation and saving (MP4)
 - LoRA and full fine-tuning training scripts
-- Training on new embodiments (AgiBot, YAM) — see [guide](docs/DATASET_TO_GEAR_AND_TRAIN.md)
+- Training on new embodiments (AgiBot, YAM)
 
 **Coming Soon**
 - [PolaRiS](https://polaris-evals.github.io/) simulation environment support
@@ -118,7 +114,7 @@ Or with the Hugging Face CLI:
 hf download GEAR-Dreams/DreamZero-AgiBot --repo-type model --local-dir ./checkpoints/DreamZero-AgiBot
 ```
 
-The YAM and AgiBot training scripts use `pretrained_model_path=./checkpoints/DreamZero-AgiBot` by default. See the [new embodiment guide](docs/DATASET_TO_GEAR_AND_TRAIN.md) for usage.
+The YAM and AgiBot training scripts use `pretrained_model_path=./checkpoints/DreamZero-AgiBot` by default.
 
 ## Running the Inference Server
 
@@ -130,11 +126,7 @@ The inference server uses PyTorch distributed training utilities to parallelize 
 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.run --standalone --nproc_per_node=2 socket_test_optimized_AR.py --port 5000 --enable-dit-cache --model-path <path/to/checkpoint>
 ```
 
-To verify the server is working, run a test client. The first few inferences will take a few minutes to warm up. After warming up, inference takes ~0.6s on GB200 and ~3s on H100.
-
-```
-python test_client_AR.py --port 5000
-```
+The first few inferences will take a few minutes to warm up. After warming up, inference takes ~0.6s on GB200 and ~3s on H100.
 
 ### Command-line Arguments
 
@@ -155,7 +147,7 @@ The server saves:
 
 ## Training
 
-> **Training on a new embodiment?** See [Adding a New Embodiment to DreamZero](docs/DATASET_TO_GEAR_AND_TRAIN.md) for a complete guide on converting your dataset, configuring modalities, and launching training. <em>Make sure to align the 3 camera view order to ensure positive transfer.</em>
+> **Training on a new embodiment?** Convert your dataset (see `scripts/data/`), configure modalities, and launch training with a script under `scripts/train/`. <em>Make sure to align the 3 camera view order to ensure positive transfer.</em>
 
 ### Downloading Pretrained Base Model Weights
 
@@ -193,7 +185,7 @@ This dataset is derived from the [DROID 1.0.1](https://droid-dataset.github.io/)
 huggingface-cli download GEAR-Dreams/DreamZero-DROID-Data --repo-type dataset --local-dir ./data/droid_lerobot
 ```
 
-If you want to reproduce the dataset conversion from raw DROID 1.0.1 yourself (or modify the filtering), see [docs/DROID_CONVERSION.md](docs/DROID_CONVERSION.md).
+If you want to reproduce the dataset conversion from raw DROID 1.0.1 yourself (or modify the filtering), see `scripts/data/convert_droid.py`.
 
 ### Running Training
 
